@@ -37,6 +37,10 @@ cargo run -p headless -- --scenario plummer --particles 1000 --steps 10000
 cargo build --release
 ```
 
+## Milestone Tags
+
+Each milestone is marked with a git tag (`m1`, `m2`, ...) applied after all code and book content for that milestone lands on `main`. Book chapters link to source files at the exact tag (e.g. `blob/m1/crates/sim-core/src/gravity.rs`) for reproducibility. CI and infrastructure commits are not milestone boundaries — apply tags to the commit that completes the milestone's acceptance criteria.
+
 ## Astrophysics Scope
 
 We model what we model. Honest claims only:
