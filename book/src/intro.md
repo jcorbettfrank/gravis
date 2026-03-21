@@ -44,12 +44,29 @@ cd gravis
 # Run all physics tests
 cargo test -p sim-core --release
 
-# Run a specific scenario
+# Run a specific scenario headless (batch mode, no window)
 cargo run -p headless --release -- --scenario plummer -n 1000 --steps 5000
 
 # Run benchmarks
 cargo bench -p sim-core
 ```
+
+### Real-time renderer (macOS)
+
+The `native-app` crate opens an interactive 3D window with camera controls and a diagnostic HUD:
+
+```bash
+# Plummer sphere — 5000 self-gravitating particles
+cargo run -p native-app --release -- --scenario plummer -n 5000
+
+# Two-body Kepler orbit
+cargo run -p native-app --release -- --scenario two-body --eccentricity 0.3
+
+# Speed up the simulation (10× real time)
+cargo run -p native-app --release -- --scenario plummer -n 5000 --speed 10.0
+```
+
+**Controls**: left-drag to orbit the camera, scroll to zoom, and use the egui panel on the left to pause, adjust simulation speed, or monitor energy conservation in real time.
 
 ## Project structure
 

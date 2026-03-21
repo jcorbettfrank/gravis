@@ -8,7 +8,7 @@ Gravitational N-body simulation in Rust, targeting Apple M5 Pro.
 - **`docs/adr/`** — architecture decision records
 - **`crates/sim-core/`** — pure simulation library (no rendering, no IO)
 - **`crates/headless/`** — CLI batch runner for benchmarks and snapshot generation
-- **`crates/native-app/`** — macOS renderer + UI (planned, M2)
+- **`crates/native-app/`** — real-time macOS renderer + egui HUD
 - **`book/`** — mdBook lessons (physics + code walkthroughs)
 - **`artifacts/`** — generated benchmarks, snapshots, plots, media
 
@@ -32,6 +32,14 @@ cargo bench -p sim-core
 
 # Headless simulation run
 cargo run -p headless -- --scenario plummer --particles 1000 --steps 10000
+
+# Real-time renderer (macOS)
+cargo run -p native-app --release -- --scenario plummer -n 5000
+cargo run -p native-app --release -- --scenario two-body --eccentricity 0.3
+cargo run -p native-app --release -- --scenario plummer -n 5000 --speed 10.0
+
+# Capture a screenshot without interactive window
+cargo run -p native-app --release -- --scenario plummer -n 5000 --screenshot artifacts/media/plummer.png
 
 # Build in release mode
 cargo build --release
