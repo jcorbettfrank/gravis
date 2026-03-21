@@ -32,15 +32,15 @@ jobs:
           path: |
             ~/.cargo/bin/mdbook
             ~/.cargo/bin/mdbook-katex
-          key: cargo-tools-${{ runner.os }}-mdbook-katex
+          key: cargo-tools-${{ runner.os }}-mdbook-0.4.47-katex-0.9.4
 
       - name: Install mdBook
         if: steps.cache-tools.outputs.cache-hit != 'true'
-        run: cargo install mdbook
+        run: cargo install mdbook --version "0.4.47"
 
       - name: Install mdbook-katex
         if: steps.cache-tools.outputs.cache-hit != 'true'
-        run: cargo install mdbook-katex
+        run: cargo install mdbook-katex --version "0.9.4"
 
       - name: Build book
         run: mdbook build book/
