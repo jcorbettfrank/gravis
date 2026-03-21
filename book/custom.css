@@ -1,0 +1,42 @@
+/* Wider content area for code blocks and equations */
+.content main {
+    max-width: 900px;
+}
+
+/* Style code annotations */
+.code-annotation {
+    color: #6a737d;
+    font-style: italic;
+}
+
+/* Physics aside boxes */
+.physics-note {
+    background-color: #f0f7ff;
+    border-left: 4px solid #3b82f6;
+    padding: 12px 16px;
+    margin: 16px 0;
+    border-radius: 0 4px 4px 0;
+}
+
+.physics-note p:first-child {
+    font-weight: bold;
+    margin-top: 0;
+}
+
+/* Verification result boxes */
+.verification {
+    background-color: #f0fdf4;
+    border-left: 4px solid #22c55e;
+    padding: 12px 16px;
+    margin: 16px 0;
+    border-radius: 0 4px 4px 0;
+}
+
+/* Warning/caveat boxes */
+.caveat {
+    background-color: #fffbeb;
+    border-left: 4px solid #f59e0b;
+    padding: 12px 16px;
+    margin: 16px 0;
+    border-radius: 0 4px 4px 0;
+}

@@ -1,0 +1,19 @@
+[book]
+authors = ["Jordan Corbett-Frank"]
+language = "en"
+src = "src"
+title = "Building an Astrophysics Simulator in Rust"
+description = "A hands-on guide to gravitational N-body simulation, from Newton's law to galaxy collisions — with physics, code, and verified results."
+
+[build]
+build-dir = "../artifacts/book"
+
+[output.html]
+git-repository-url = "https://github.com/jcorbettfrank/gravis"
+additional-css = ["custom.css"]
+
+[output.html.playground]
+editable = false
+
+[preprocessor.katex]
+after = ["links"]

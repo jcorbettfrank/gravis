@@ -1,0 +1,7 @@
+/target
+artifacts/snapshots/
+artifacts/plots/
+artifacts/media/
+artifacts/book/
+# Keep benchmark CSVs for the book
+!artifacts/benchmarks/.gitkeep
