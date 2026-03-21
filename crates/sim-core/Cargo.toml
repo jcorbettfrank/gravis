@@ -1,0 +1,15 @@
+[package]
+name = "sim-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rand = "0.9"
+rand_chacha = "0.9"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "gravity"
+harness = false
