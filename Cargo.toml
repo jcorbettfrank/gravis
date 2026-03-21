@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/sim-core",
     "crates/headless",
+    "crates/native-app",
 ]
 
 [workspace.package]
