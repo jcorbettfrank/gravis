@@ -56,11 +56,17 @@ cargo bench -p sim-core
 ```
 crates/sim-core/    Pure simulation library (no rendering, no IO)
 crates/headless/    CLI batch runner for benchmarks and artifacts
+crates/native-app/  Real-time macOS renderer with egui HUD
 book/               This book (mdBook + KaTeX)
-artifacts/          Generated benchmarks, snapshots, plots
+artifacts/          Generated benchmarks, snapshots, plots, media
 docs/               Plan and architecture decision records
 ```
 
-Future milestones add `crates/native-app/` (macOS renderer) and `crates/web-app/` (WASM+WebGPU). See `docs/PLAN.md` for the roadmap.
+The `native-app` crate provides a real-time 3D renderer for macOS. It runs the simulation on a background thread while rendering at 60fps with interactive camera controls and a diagnostic HUD.
+
+![Plummer sphere (5000 particles)](../artifacts/media/m2_plummer.png)
+![Kepler two-body orbit](../artifacts/media/m2_kepler.png)
+
+Future milestones add `crates/web-app/` (WASM+WebGPU). See `docs/PLAN.md` for the roadmap.
 
 The simulation core (`sim-core`) has zero dependencies on rendering or IO. It's a pure library that computes physics. The `headless` crate wraps it with a CLI for batch runs, snapshot generation, and diagnostic output. This separation is enforced by the Cargo workspace — `sim-core` literally cannot import windowing or GPU crates.
