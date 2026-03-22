@@ -2,17 +2,17 @@
 
 In Chapter 1, we computed gravitational forces by summing over every particle pair — $O(N^2)$ work per timestep. At $N = 10{,}000$, that's about 50 million interactions per step. By $N = 100{,}000$, it's 5 billion. The brute-force approach hits a wall.
 
-The Barnes-Hut algorithm reduces this to $O(N \log N)$ by exploiting a physical insight: a distant cluster of particles looks almost the same as a single particle at the cluster's center of mass. We only need to resolve individual particles when they're nearby.
+The [Barnes-Hut algorithm](https://en.wikipedia.org/wiki/Barnes%E2%80%93Hut_simulation) reduces this to $O(N \log N)$ by exploiting a physical insight: a distant cluster of particles looks almost the same as a single particle at the cluster's [center of mass](https://en.wikipedia.org/wiki/Center_of_mass). We only need to resolve individual particles when they're nearby.
 
 ## The Key Idea
 
 Imagine computing the gravitational pull of the Andromeda galaxy on you. You could sum the force from each of its trillion stars individually. Or you could note that Andromeda is 2.5 million light-years away and treat it as a single point mass. The error from this approximation is negligible — Andromeda's diameter (~220,000 light-years) is small compared to its distance.
 
-The Barnes-Hut algorithm applies this reasoning recursively: partition space into a hierarchy of cells, aggregate each cell's mass at its center of mass, and replace the full sum with an approximate sum that uses aggregate cells where possible.
+The Barnes-Hut algorithm applies this reasoning recursively: partition space into a hierarchy of cells, aggregate each cell's mass at its center of mass, and replace the full sum with an approximate sum that uses aggregate cells where possible. This is a form of [multipole expansion](https://en.wikipedia.org/wiki/Multipole_expansion) truncated at the monopole term — higher-order variants (quadrupole, octupole) exist but the monopole approximation is sufficient for most astrophysical N-body work.
 
 ## The Octree
 
-We partition 3D space using an **octree**: a tree where each node represents a cubic region and has up to 8 children (one per octant). Construction works by inserting particles one at a time:
+We partition 3D space using an [**octree**](https://en.wikipedia.org/wiki/Octree): a tree where each node represents a cubic region and has up to 8 children (one per octant). The 2D analog is a [quadtree](https://en.wikipedia.org/wiki/Quadtree). Construction works by inserting particles one at a time:
 
 1. Start with a single root node encompassing all particles.
 2. If a node is empty, the inserted particle becomes its sole occupant.
@@ -81,7 +81,7 @@ The log-log slope of the Barnes-Hut timing is approximately 1.2, consistent with
 
 ## Momentum Conservation
 
-There's a trade-off hidden in this approach. The brute-force solver computes each pair interaction once and applies Newton's third law ($\vec{F}_{ij} = -\vec{F}_{ji}$), guaranteeing exact momentum conservation. Barnes-Hut computes each particle's acceleration independently — particle $i$ might approximate the force from particle $j$'s cell differently than particle $j$ approximates the force from particle $i$'s cell.
+There's a trade-off hidden in this approach. The brute-force solver computes each pair interaction once and applies [Newton's third law](https://en.wikipedia.org/wiki/Newton%27s_laws_of_motion#Third_law) ($\vec{F}_{ij} = -\vec{F}_{ji}$), guaranteeing exact [momentum conservation](https://en.wikipedia.org/wiki/Conservation_of_momentum). Barnes-Hut computes each particle's acceleration independently — particle $i$ might approximate the force from particle $j$'s cell differently than particle $j$ approximates the force from particle $i$'s cell.
 
 This means momentum is conserved only approximately, not to machine precision. In practice, with $\theta = 0.5$, the drift is small enough to be irrelevant over the timescales we simulate. But it's worth knowing: if a test expects machine-precision momentum conservation, use brute-force.
 
@@ -105,3 +105,12 @@ cargo run -p headless --release -- --scenario plummer -n 100000 --algorithm barn
 # Interactive renderer at 100K particles
 cargo run -p native-app --release -- --scenario plummer -n 100000 --algorithm barnes-hut
 ```
+
+## Further Reading
+
+- [Barnes & Hut (1986)](https://ui.adsabs.harvard.edu/abs/1986Natur.324..446B) — the original paper introducing the hierarchical tree algorithm in *Nature*
+- [Barnes-Hut simulation](https://en.wikipedia.org/wiki/Barnes%E2%80%93Hut_simulation) — overview of the algorithm, opening angle criterion, and complexity analysis
+- [Octree](https://en.wikipedia.org/wiki/Octree) — the 3D spatial partitioning structure underlying the tree
+- [Multipole expansion](https://en.wikipedia.org/wiki/Multipole_expansion) — the mathematical framework for approximating distant mass distributions; Barnes-Hut uses the monopole (zeroth-order) term
+- [Fast multipole method](https://en.wikipedia.org/wiki/Fast_multipole_method) — an $O(N)$ extension that includes higher-order multipoles, for reference
+- [Center of mass](https://en.wikipedia.org/wiki/Center_of_mass) — the mass-weighted position used for monopole approximation
