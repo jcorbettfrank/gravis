@@ -30,7 +30,7 @@ This isn't just a numerical inconvenience. It's a fundamental limitation of mode
 
 ## Plummer Softening
 
-The standard solution is **gravitational softening**. We replace the point-mass potential with the potential of an extended mass distribution — specifically, a [Plummer sphere](https://en.wikipedia.org/wiki/Plummer_model). The Plummer potential is $\Phi = -GM/\sqrt{r^2 + \epsilon^2}$; our acceleration formula follows from $\vec{a} = -\nabla\Phi$:
+The standard solution is **gravitational softening**. We replace the point-mass potential with the potential of an extended mass distribution — specifically, a [Plummer sphere](https://en.wikipedia.org/wiki/N-body_simulation#Softening). The Plummer potential is $\Phi = -GM/\sqrt{r^2 + \epsilon^2}$; our acceleration formula follows from $\vec{a} = -\nabla\Phi$:
 
 $$\vec{a}_i = \sum_{j \neq i} \frac{G \, m_j \, \vec{r}_{ij}}{\left(|\vec{r}_{ij}|^2 + \epsilon^2\right)^{3/2}}$$
 
