@@ -43,6 +43,12 @@ impl Integrator for LeapfrogKDK {
         let half_dt = 0.5 * dt;
         let n = p.count;
 
+        // The kick/drift loops are sequential. They are memory-bound (simple
+        // a*dt additions) and rayon's per-call dispatch overhead for 6
+        // separate par_iter calls exceeds the computation time even at large N.
+        // Force computation (the actual bottleneck) is parallelized in the
+        // GravitySolver implementation.
+
         // Half-kick: v(t + dt/2) = v(t) + a(t) * dt/2
         for i in 0..n {
             p.vx[i] += p.ax[i] * half_dt;

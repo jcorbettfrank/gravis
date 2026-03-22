@@ -18,10 +18,11 @@ pub struct UiState {
     kinetic_energy: f64,
     potential_energy: f64,
     virial_ratio: f64,
+    algorithm: String,
 }
 
 impl UiState {
-    pub fn new(initial_speed: f64) -> Self {
+    pub fn new(initial_speed: f64, algorithm: String) -> Self {
         Self {
             fps_history: VecDeque::with_capacity(FPS_HISTORY_CAP),
             energy_history: VecDeque::with_capacity(ENERGY_HISTORY_CAP),
@@ -35,6 +36,7 @@ impl UiState {
             kinetic_energy: 0.0,
             potential_energy: 0.0,
             virial_ratio: 0.0,
+            algorithm,
         }
     }
 
@@ -94,9 +96,10 @@ impl UiState {
             .show(ctx, |ui| {
                 // Stats
                 ui.label(format!(
-                    "FPS: {:.0}  |  Particles: {}",
+                    "FPS: {:.0}  |  N: {}  |  {}",
                     self.avg_fps(),
-                    self.particle_count
+                    self.particle_count,
+                    self.algorithm,
                 ));
                 ui.label(format!(
                     "Sim time: {:.4}  |  Step: {}",

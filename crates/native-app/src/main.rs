@@ -40,6 +40,14 @@ pub struct Cli {
     /// Take a screenshot after settling and exit (path to PNG)
     #[arg(long)]
     pub screenshot: Option<String>,
+
+    /// Force calculation algorithm
+    #[arg(long, default_value = "brute-force", value_parser = ["brute-force", "barnes-hut"])]
+    pub algorithm: String,
+
+    /// Barnes-Hut opening angle (lower = more accurate, higher = faster)
+    #[arg(long, default_value_t = 0.5)]
+    pub theta: f64,
 }
 
 fn main() {

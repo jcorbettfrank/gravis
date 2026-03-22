@@ -1,4 +1,5 @@
 use clap::Parser;
+use sim_core::barnes_hut::BarnesHut;
 use sim_core::diagnostics;
 use sim_core::gravity::{BruteForce, GravitySolver};
 use sim_core::integrator::{Integrator, LeapfrogKDK};
@@ -57,6 +58,14 @@ struct Cli {
     /// Eccentricity for two-body scenario (must be in [0, 1))
     #[arg(long, default_value_t = 0.5)]
     eccentricity: f64,
+
+    /// Force calculation algorithm
+    #[arg(long, default_value = "brute-force", value_parser = ["brute-force", "barnes-hut"])]
+    algorithm: String,
+
+    /// Barnes-Hut opening angle (lower = more accurate, higher = faster)
+    #[arg(long, default_value_t = 0.5)]
+    theta: f64,
 }
 
 fn main() {
@@ -117,11 +126,18 @@ fn main() {
         }
     };
 
-    let gravity: Box<dyn GravitySolver> = Box::new(BruteForce::new(softening));
+    let gravity: Box<dyn GravitySolver> = match cli.algorithm.as_str() {
+        "barnes-hut" => Box::new(BarnesHut::new(softening, cli.theta)),
+        _ => Box::new(BruteForce::new(softening)),
+    };
     let integrator = LeapfrogKDK;
 
     eprintln!("Scenario:   {scenario_name}");
     eprintln!("Particles:  {}", particles.count);
+    eprintln!("Algorithm:  {}", cli.algorithm);
+    if cli.algorithm == "barnes-hut" {
+        eprintln!("Theta:      {}", cli.theta);
+    }
     eprintln!("Steps:      {}", cli.steps);
     eprintln!("dt:         {dt:.6e}");
     eprintln!("Softening:  {softening:.6e}");
@@ -146,7 +162,14 @@ fn main() {
     gravity.compute_accelerations(&mut particles);
 
     // Record initial diagnostics
-    let initial_diag = diagnostics::compute(&particles, softening, 0.0, 0);
+    // Use fast (O(N)) diagnostics when the O(N²) potential energy calculation
+    // is not needed (no diagnostics output requested).
+    let use_full_diag = cli.diag_interval > 0 || cli.diag_csv.is_some();
+    let initial_diag = if use_full_diag {
+        diagnostics::compute(&particles, softening, 0.0, 0)
+    } else {
+        diagnostics::compute_fast(&particles, 0.0, 0)
+    };
     eprintln!(
         "Initial:    E={:.10e}  2K/|U|={:.4}",
         initial_diag.total_energy, initial_diag.virial_ratio
@@ -193,7 +216,11 @@ fn main() {
     let wall_elapsed = wall_start.elapsed();
 
     // Final diagnostics
-    let final_diag = diagnostics::compute(&particles, softening, sim_time, cli.steps);
+    let final_diag = if use_full_diag {
+        diagnostics::compute(&particles, softening, sim_time, cli.steps)
+    } else {
+        diagnostics::compute_fast(&particles, sim_time, cli.steps)
+    };
     let de = (final_diag.total_energy - initial_diag.total_energy) / initial_diag.total_energy.abs();
 
     eprintln!();

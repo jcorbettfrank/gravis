@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 rand = "0.9"
 rand_chacha = "0.9"
+rayon = "1.10"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
