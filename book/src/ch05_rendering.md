@@ -255,8 +255,8 @@ On WASM, the simulation is CPU-bound much earlier than on native. Without rayon,
 
 Drag to orbit, scroll to zoom. The controls change scenario, particle count, and speed.
 
-<div class="live-demo">
-  <iframe src="demos/full.html" width="100%" height="550" loading="lazy"
+<div class="live-demo live-demo--full">
+  <iframe src="demos/full.html" width="100%" loading="lazy"
           title="Interactive N-body simulation"></iframe>
   <p class="demo-fallback" style="display:none">
     <img src="images/m2_plummer.png" alt="Plummer sphere screenshot">

@@ -50,6 +50,7 @@ struct AppState {
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
+    canvas: HtmlCanvasElement,
 
     // render-core pipelines
     particle_pipeline: ParticlePipeline,
@@ -81,14 +82,32 @@ struct AppState {
     fps: f64,
     frames_since_stats: u32,
 
-    // input
+    // input (mouse)
     dragging: bool,
     last_cursor: [f64; 2],
+
+    // input (touch)
+    touch: TouchState,
+
+    // resize
+    pending_resize: bool,
 
     // scratch buffers (reused across frames to avoid per-frame allocation)
     scratch_positions: Vec<[f32; 3]>,
     scratch_masses: Vec<f32>,
     cached_colors: Vec<[f32; 4]>,
+}
+
+#[derive(Default)]
+struct TouchState {
+    primary: Option<TrackedTouch>,
+    secondary: Option<TrackedTouch>,
+    pinch_distance: Option<f64>,
+}
+
+struct TrackedTouch {
+    id: i32,
+    pos: [f64; 2],
 }
 
 
@@ -276,6 +295,7 @@ pub async fn main() {
         queue,
         surface,
         surface_config,
+        canvas: canvas.clone(),
         particle_pipeline,
         axes_pipeline,
         bloom_pipeline,
@@ -298,6 +318,8 @@ pub async fn main() {
         frames_since_stats: 0,
         dragging: false,
         last_cursor: [0.0; 2],
+        touch: TouchState::default(),
+        pending_resize: false,
         scratch_positions: Vec::with_capacity(n),
         scratch_masses,
         cached_colors,
@@ -305,6 +327,8 @@ pub async fn main() {
 
     // --- Input event listeners ---
     setup_input_handlers(&canvas, &state);
+    setup_touch_handlers(&canvas, &state);
+    setup_resize_observer(&canvas, &state);
 
     // --- Control event listeners ---
     setup_control_handlers(&document, &state);
@@ -327,6 +351,13 @@ pub async fn main() {
 
         {
             let mut s = state_loop.borrow_mut();
+
+            // Handle pending resize before rendering
+            if s.pending_resize {
+                handle_resize(&mut s);
+                s.pending_resize = false;
+            }
+
             s.last_frame_ms = dt_ms;
             s.fps = if dt_ms > 0.0 { 1000.0 / dt_ms } else { 0.0 };
 
@@ -525,9 +556,7 @@ fn setup_input_handlers(canvas: &HtmlCanvasElement, state: &Rc<RefCell<AppState>
             if st.dragging {
                 let dx = (x - st.last_cursor[0]) as f32;
                 let dy = (y - st.last_cursor[1]) as f32;
-                st.camera.desired_yaw -= dx * 0.005;
-                st.camera.desired_pitch += dy * 0.005;
-                st.camera.desired_pitch = st.camera.desired_pitch.clamp(-1.55, 1.55);
+                st.camera.apply_orbit_delta(dx, dy);
             }
             st.last_cursor = [x, y];
         }) as Box<dyn FnMut(_)>);
@@ -551,8 +580,7 @@ fn setup_input_handlers(canvas: &HtmlCanvasElement, state: &Rc<RefCell<AppState>
                 // Line deltas (mouse wheel)
                 -(delta as f32) * 0.05
             };
-            st.camera.desired_distance *= 1.0 - scroll;
-            st.camera.desired_distance = st.camera.desired_distance.clamp(0.1, 100.0);
+            st.camera.apply_zoom(1.0 - scroll);
         }) as Box<dyn FnMut(_)>);
         canvas
             .add_event_listener_with_callback("wheel", cb.as_ref().unchecked_ref())
@@ -569,6 +597,173 @@ fn setup_input_handlers(canvas: &HtmlCanvasElement, state: &Rc<RefCell<AppState>
             .add_event_listener_with_callback("contextmenu", cb.as_ref().unchecked_ref())
             .unwrap();
         cb.forget();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Resize handling
+// ---------------------------------------------------------------------------
+
+fn handle_resize(s: &mut AppState) {
+    let w = s.canvas.client_width() as u32;
+    let h = s.canvas.client_height() as u32;
+    if w == 0 || h == 0 {
+        return;
+    }
+    if w == s.surface_config.width && h == s.surface_config.height {
+        return;
+    }
+    s.canvas.set_width(w);
+    s.canvas.set_height(h);
+    s.surface_config.width = w;
+    s.surface_config.height = h;
+    s.surface.configure(&s.device, &s.surface_config);
+    s.depth_view = bloom::create_depth_texture(&s.device, w, h);
+    s.camera.set_aspect_ratio(w as f32 / h.max(1) as f32);
+}
+
+fn setup_resize_observer(canvas: &HtmlCanvasElement, state: &Rc<RefCell<AppState>>) {
+    let s = state.clone();
+    let cb = Closure::wrap(Box::new(move |_entries: js_sys::Array| {
+        s.borrow_mut().pending_resize = true;
+    }) as Box<dyn FnMut(js_sys::Array)>);
+
+    let observer = web_sys::ResizeObserver::new(cb.as_ref().unchecked_ref())
+        .expect("Failed to create ResizeObserver");
+    observer.observe(canvas);
+    cb.forget();
+    // Leak the observer so it stays alive for the lifetime of the page.
+    std::mem::forget(observer);
+}
+
+// ---------------------------------------------------------------------------
+// Touch handlers
+// ---------------------------------------------------------------------------
+
+fn add_non_passive_listener(
+    target: &web_sys::EventTarget,
+    event: &str,
+    cb: Closure<dyn FnMut(web_sys::TouchEvent)>,
+) {
+    let opts = web_sys::AddEventListenerOptions::new();
+    opts.set_passive(false);
+    target
+        .add_event_listener_with_callback_and_add_event_listener_options(
+            event,
+            cb.as_ref().unchecked_ref(),
+            &opts,
+        )
+        .unwrap();
+    cb.forget();
+}
+
+fn touch_distance(a: &TrackedTouch, b: &TrackedTouch) -> f64 {
+    let dx = a.pos[0] - b.pos[0];
+    let dy = a.pos[1] - b.pos[1];
+    (dx * dx + dy * dy).sqrt()
+}
+
+fn setup_touch_handlers(canvas: &HtmlCanvasElement, state: &Rc<RefCell<AppState>>) {
+    // touchstart
+    {
+        let s = state.clone();
+        add_non_passive_listener(
+            canvas,
+            "touchstart",
+            Closure::wrap(Box::new(move |e: web_sys::TouchEvent| {
+                e.prevent_default();
+                let mut st = s.borrow_mut();
+                let touches = e.changed_touches();
+                for i in 0..touches.length() {
+                    let t = touches.get(i).unwrap();
+                    let tt = TrackedTouch {
+                        id: t.identifier(),
+                        pos: [t.client_x() as f64, t.client_y() as f64],
+                    };
+                    if st.touch.primary.is_none() {
+                        st.touch.primary = Some(tt);
+                    } else if st.touch.secondary.is_none()
+                        && st.touch.primary.as_ref().map(|p| p.id) != Some(tt.id)
+                    {
+                        // Compute initial pinch distance
+                        st.touch.pinch_distance =
+                            Some(touch_distance(st.touch.primary.as_ref().unwrap(), &tt));
+                        st.touch.secondary = Some(tt);
+                    }
+                }
+            })),
+        );
+    }
+
+    // touchmove
+    {
+        let s = state.clone();
+        add_non_passive_listener(
+            canvas,
+            "touchmove",
+            Closure::wrap(Box::new(move |e: web_sys::TouchEvent| {
+                e.prevent_default();
+                let mut st = s.borrow_mut();
+                let touches = e.changed_touches();
+
+                for i in 0..touches.length() {
+                    let t = touches.get(i).unwrap();
+                    let id = t.identifier();
+                    let pos = [t.client_x() as f64, t.client_y() as f64];
+                    if st.touch.primary.as_ref().map(|p| p.id) == Some(id) {
+                        let old = st.touch.primary.as_ref().unwrap().pos;
+                        st.touch.primary.as_mut().unwrap().pos = pos;
+                        // Single-finger orbit (only if no pinch active)
+                        if st.touch.secondary.is_none() {
+                            let dx = (pos[0] - old[0]) as f32;
+                            let dy = (pos[1] - old[1]) as f32;
+                            st.camera.apply_orbit_delta(dx, dy);
+                        }
+                    } else if st.touch.secondary.as_ref().map(|p| p.id) == Some(id) {
+                        st.touch.secondary.as_mut().unwrap().pos = pos;
+                    }
+                }
+
+                // Two-finger pinch zoom
+                if let (Some(p), Some(s2)) =
+                    (st.touch.primary.as_ref(), st.touch.secondary.as_ref())
+                {
+                    let new_dist = touch_distance(p, s2);
+                    if let Some(old_dist) = st.touch.pinch_distance {
+                        if old_dist > 1.0 {
+                            let ratio = new_dist / old_dist;
+                            st.camera.apply_zoom(1.0 / ratio as f32);
+                        }
+                    }
+                    st.touch.pinch_distance = Some(new_dist);
+                }
+            })),
+        );
+    }
+
+    // touchend / touchcancel
+    for event_name in &["touchend", "touchcancel"] {
+        let s = state.clone();
+        add_non_passive_listener(
+            canvas,
+            event_name,
+            Closure::wrap(Box::new(move |e: web_sys::TouchEvent| {
+                e.prevent_default();
+                let mut st = s.borrow_mut();
+                let touches = e.changed_touches();
+                for i in 0..touches.length() {
+                    let id = touches.get(i).unwrap().identifier();
+                    if st.touch.primary.as_ref().map(|p| p.id) == Some(id) {
+                        // Promote secondary to primary if it exists
+                        st.touch.primary = st.touch.secondary.take();
+                        st.touch.pinch_distance = None;
+                    } else if st.touch.secondary.as_ref().map(|p| p.id) == Some(id) {
+                        st.touch.secondary = None;
+                        st.touch.pinch_distance = None;
+                    }
+                }
+            })),
+        );
     }
 }
 
