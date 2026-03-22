@@ -42,9 +42,40 @@ This appendix collects all test problems with their analytical solutions and acc
 |------|---------|-----------|
 | Restore + initialize matches fresh run | `cargo test -p sim-core --release -- restore_then_initialize` | Position difference $< 10^{-14}$ |
 
+## M3 Tests (Barnes-Hut + Rayon)
+
+### Force Accuracy
+
+**Setup**: Plummer sphere with $N = 1000$, $\epsilon = 0.05$. Compute accelerations with both brute-force (exact reference) and Barnes-Hut at various $\theta$.
+
+**Analytical**: At $\theta = 0$, Barnes-Hut opens every node and must match brute-force exactly. At $\theta > 0$, the [monopole approximation](https://en.wikipedia.org/wiki/Multipole_expansion) introduces error that grows with $\theta$.
+
+| Test | Command | Criterion |
+|------|---------|-----------|
+| Force accuracy ($\theta = 0.5$) | `cargo test -p sim-core --release -- force_accuracy_theta_05` | RMS relative error $< 1\%$ |
+| Force accuracy ($\theta = 0.3$) | `cargo test -p sim-core --release -- force_accuracy_theta_03` | RMS relative error $< 0.5\%$ |
+| Monotonic error vs $\theta$ | `cargo test -p sim-core --release -- force_accuracy_monotonic` | Error at $\theta_{i+1} \geq$ error at $\theta_i$ |
+| $\theta = 0$ matches brute-force | `cargo test -p sim-core --release -- theta_zero_matches_brute_force` | Per-particle difference $< 10^{-12}$ |
+
+### Energy Conservation (Barnes-Hut)
+
+**Setup**: Same Kepler and Plummer setups as M1, but using the Barnes-Hut solver. Tolerances are wider than brute-force because the approximate forces introduce a small non-conservative component.
+
+| Test | Command | Criterion |
+|------|---------|-----------|
+| Kepler orbit (100 orbits, $\theta = 0.3$) | `cargo test -p sim-core --release -- energy_conservation_kepler_bh` | $\|\Delta E/E\| < 10^{-3}$ |
+| Plummer virial (10 $t_{\text{dyn}}$, $\theta = 0.5$) | `cargo test -p sim-core --release -- virial_equilibrium_plummer_bh` | $\|2K/\|U\| - 1\| < 0.5$, $\|\Delta E/E\| < 1\%$ |
+
+### Scaling
+
+**Setup**: Barnes-Hut force evaluation at $N = 1000, 2000, 5000, 10000, 20000$ with $\theta = 0.5$. Measure wall-clock time and fit [log-log slope](https://en.wikipedia.org/wiki/Log%E2%80%93log_plot).
+
+| Test | Command | Criterion |
+|------|---------|-----------|
+| $O(N \log N)$ scaling | `cargo test -p sim-core --release -- barnes_hut_scaling_is_nlogn` | Log-log slope $\in [0.8, 1.8]$ |
+
 ## Future Tests
 
 Tests added in later milestones will be documented here:
 
-- **M3**: Barnes-Hut force accuracy vs brute-force, scaling verification
 - **M7**: Sod shock tube, Sedov-Taylor blast wave, Evrard collapse, Kelvin-Helmholtz instability
