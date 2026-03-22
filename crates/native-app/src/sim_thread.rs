@@ -201,9 +201,11 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
             continue;
         }
 
-        // Compute diagnostics periodically
+        // Compute diagnostics periodically.
+        // Use fast O(N) diagnostics to avoid blocking the sim thread with
+        // O(N^2) potential energy calculation at large N.
         if last_diag_time.elapsed() >= DIAG_INTERVAL {
-            cached_diag = diagnostics::compute(&particles, softening, sim_time, step);
+            cached_diag = diagnostics::compute_fast(&particles, sim_time, step);
             last_diag_time = Instant::now();
         }
 

@@ -89,7 +89,7 @@ This means momentum is conserved only approximately, not to machine precision. I
 
 Our implementation in Rust ([`octree.rs`](blob/m3/crates/sim-core/src/octree.rs), [`barnes_hut.rs`](blob/m3/crates/sim-core/src/barnes_hut.rs)) follows the design above:
 
-- **Recursive octree**: each `OctreeNode` owns its children via `Option<Box<[Option<OctreeNode>; 8]>>`. Safe Rust, no arenas, no `unsafe`.
+- **Arena-allocated octree**: all nodes live in a flat `Vec<OctreeNode>` with `[u32; 8]` child indices. One allocation per tree build instead of thousands of per-node `Box` allocations. Safe Rust, no `unsafe`.
 - **Tree rebuilt each step**: since particles move, the tree is rebuilt from scratch on every force evaluation. This is simpler than maintaining a dynamic tree and the build cost is $O(N \log N)$, dominated by the tree walk.
 - **Parallel tree walk**: each particle walks the (immutable) tree independently — a natural fit for `rayon::par_iter`. We'll cover parallelization in Chapter 4.
 

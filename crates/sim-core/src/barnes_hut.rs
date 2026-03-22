@@ -54,8 +54,9 @@ impl BarnesHut {
         let nodes = &tree.nodes;
 
         // Explicit stack to avoid recursive function calls.
-        // Use a fixed-size array to avoid heap allocation per particle.
-        let mut stack_buf = [0u32; 256];
+        // Size 512 = MAX_DEPTH(64) * 8 children, sufficient for worst-case
+        // traversal where every level is fully opened (theta=0).
+        let mut stack_buf = [0u32; 512];
         let mut stack_len = 1usize;
         stack_buf[0] = 0; // root
 
@@ -168,11 +169,11 @@ impl GravitySolver for BarnesHut {
                 .collect()
         };
 
-        // Copy back into particle arrays
+        // Accumulate into particle arrays (matching GravitySolver trait contract)
         for i in 0..n {
-            p.ax[i] = accels[i][0];
-            p.ay[i] = accels[i][1];
-            p.az[i] = accels[i][2];
+            p.ax[i] += accels[i][0];
+            p.ay[i] += accels[i][1];
+            p.az[i] += accels[i][2];
         }
     }
 }

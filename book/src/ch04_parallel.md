@@ -44,23 +44,15 @@ The temporary `Vec<[f64; 3]>` buffer avoids the borrow conflict that would arise
 
 **Why not compute in-place?** The `GravitySolver` trait takes `&mut Particles`. With rayon, we'd need simultaneous shared reads (positions, masses) and exclusive writes (accelerations). Rust's borrow checker prevents this on the same struct. The temporary buffer is the clean, safe solution.
 
-## Parallelizing the Integrator
+## Why the Integrator Stays Sequential
 
-The leapfrog kick/drift loops are even simpler to parallelize. Each particle's update depends only on its own state:
+The leapfrog kick/drift loops are embarrassingly parallel in principle — each particle's update depends only on its own state. But in practice, these loops are **memory-bound**: each element does one multiply and one add (~2 FLOPs). At 500K particles, the sequential loop takes ~2ms. Rayon's thread pool dispatch overhead for 6 separate `par_iter_mut().zip()` calls (3 kick + 3 drift) adds ~120ms — far exceeding the computation itself.
 
-```rust
-// Half-kick: v += a * dt/2
-p.vx.par_iter_mut().zip(&p.ax)
-    .for_each(|(v, &a)| *v += a * half_dt);
-```
+The lesson: parallelism only helps when the work per element is large enough to amortize dispatch overhead. The force computation (tree walk with ~100 operations per particle) benefits enormously from rayon. The kick/drift (2 operations per particle) does not.
 
-Rayon's `par_iter_mut().zip()` automatically chunks the arrays across threads. The borrow checker ensures safety: `vx` is borrowed mutably, `ax` immutably — no aliasing possible.
+## The Parallelism Threshold
 
-## The Threshold
-
-Parallel overhead isn't free. Rayon's thread pool dispatch, work queue management, and cache synchronization cost microseconds per invocation. For small $N$ (< 1000), this overhead exceeds the work itself, making parallel execution *slower* than sequential.
-
-We use a simple threshold: parallelize only when $N \geq 1000$. Below that, the sequential path runs. This is a pragmatic choice — the two-body Kepler test (N=2) shouldn't pay for thread pool overhead on every timestep.
+For the force computation, rayon's dispatch overhead dominates at small $N$. We use a threshold: parallelize tree walks only when $N \geq 1000$. Below that, sequential iteration runs. This ensures the two-body Kepler test (N=2) doesn't pay thread pool overhead on every timestep.
 
 ## The Borrow Checker as Safety Net
 
@@ -73,6 +65,6 @@ In Rust, the compiler prevents this entirely. Rayon's `par_iter_mut()` guarantee
 The parallel code lives in two places:
 
 - [`barnes_hut.rs`](blob/m3/crates/sim-core/src/barnes_hut.rs): `compute_accelerations` uses `(0..n).into_par_iter()` for the tree walk, with a sequential fallback for N < 1000.
-- [`integrator.rs`](blob/m3/crates/sim-core/src/integrator.rs): `LeapfrogKDK::step` uses `par_iter_mut().zip()` for kick/drift loops, also with a threshold.
+- [`integrator.rs`](blob/m3/crates/sim-core/src/integrator.rs): `LeapfrogKDK::step` remains sequential — kick/drift loops are memory-bound and don't benefit from parallelism.
 
 Rayon is added as a dependency of `sim-core` (not feature-gated). The WASM target (M6) will gate it with `#[cfg]` when needed.

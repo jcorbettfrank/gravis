@@ -5,19 +5,17 @@
 
 ## Decision
 
-Use a recursive enum octree with a temporary acceleration buffer for parallel force computation. Add `rayon` as an unconditional dependency.
+Use an arena-allocated octree with a temporary acceleration buffer for parallel force computation. Add `rayon` as an unconditional dependency.
 
 ## Context
 
 M3 replaces the O(N^2) brute-force gravity solver with an O(N log N) Barnes-Hut tree code. Three design decisions were made:
 
-### 1. Recursive enum vs. arena-based octree
+### 1. Arena-allocated octree
 
-We use a recursive `OctreeNode` struct with `Option<Box<[Option<OctreeNode>; 8]>>` for children. This is safe Rust with no `unsafe` blocks, matching the project convention.
+All nodes live in a flat `Vec<OctreeNode>` with `[u32; 8]` child indices (sentinel `u32::MAX` for empty slots). This eliminates per-node heap allocations — one Vec allocation instead of thousands of Box allocations — and improves cache locality during tree walks. Safe Rust, no `unsafe`.
 
-An arena-based (linearized) octree would improve cache locality during tree walks but adds implementation complexity and requires either `unsafe` or a crate like `typed-arena`. Since tree construction is not the bottleneck (the tree walk dominates), the recursive approach is sufficient.
-
-A depth limit of 64 prevents stack overflow when particles overlap exactly.
+A depth limit of 64 prevents infinite recursion when particles overlap exactly.
 
 ### 2. Temporary acceleration buffer (no trait change)
 
@@ -27,7 +25,7 @@ The `GravitySolver` trait takes `&mut Particles`, which conflicts with rayon's r
 
 `rayon` is added to `sim-core` without feature gating. The M6 WASM target will add `#[cfg(not(target_arch = "wasm32"))]` gating when needed. Adding it now would be premature abstraction.
 
-Both Barnes-Hut force computation and the leapfrog integrator's kick/drift loops use rayon, with a threshold (N >= 1000) to avoid overhead on small particle counts.
+Barnes-Hut force computation uses rayon for parallel tree walks, with a threshold (N >= 1000) to avoid dispatch overhead on small particle counts. The integrator's kick/drift loops remain sequential — they are memory-bound and rayon's per-call dispatch overhead exceeds the computation time even at large N.
 
 ## Consequences
 
