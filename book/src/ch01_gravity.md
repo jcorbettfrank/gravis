@@ -30,7 +30,7 @@ This isn't just a numerical inconvenience. It's a fundamental limitation of mode
 
 ## Plummer Softening
 
-The standard solution is **gravitational softening**. We replace the point-mass potential with the potential of an extended mass distribution — specifically, a Plummer sphere:
+The standard solution is **gravitational softening**. We replace the point-mass potential with the potential of an extended mass distribution — specifically, a [Plummer sphere](https://en.wikipedia.org/wiki/Plummer_model). The Plummer potential is $\Phi = -GM/\sqrt{r^2 + \epsilon^2}$; our acceleration formula follows from $\vec{a} = -\nabla\Phi$:
 
 $$\vec{a}_i = \sum_{j \neq i} \frac{G \, m_j \, \vec{r}_{ij}}{\left(|\vec{r}_{ij}|^2 + \epsilon^2\right)^{3/2}}$$
 
@@ -41,17 +41,17 @@ The softening length $\epsilon$ sets the scale below which gravity is suppressed
 **Choosing $\epsilon$.**
 Too large: you smooth out real gravitational structure. Two particles at distance $d < \epsilon$ barely interact.
 Too small: close encounters produce large forces that require tiny timesteps.
-Rule of thumb: $\epsilon$ should be comparable to the mean inter-particle spacing at the scale of interest. For a Plummer sphere with $N = 1000$ and scale radius $a = 1$, the half-mass radius is $\approx 1.3$, giving a mean spacing of $\sim 0.2$. We use $\epsilon \approx 0.1$, about half the mean spacing.
+Rule of thumb: $\epsilon$ should be comparable to the mean inter-particle spacing at the scale of interest. For a Plummer sphere with $N = 1000$ and scale radius $a = 1$, the [half-mass radius](https://en.wikipedia.org/wiki/Plummer_model) is $\approx 1.3$ (from inverting the Plummer cumulative mass profile), giving a mean spacing of $\sim 0.2$. We use $\epsilon \approx 0.1$, about half the mean spacing.
 
 </div>
 
 ## N-Body Units
 
-Rather than carrying $G = 6.674 \times 10^{-11} \; \text{m}^3 \text{kg}^{-1} \text{s}^{-2}$ through every calculation, we choose units where $G = 1$. This is the same idea as natural units in particle physics ($c = \hbar = 1$).
+Rather than carrying $G = 6.674 \times 10^{-11} \; \text{m}^3 \text{kg}^{-1} \text{s}^{-2}$ through every calculation, we choose [N-body units](https://en.wikipedia.org/wiki/N-body_units) where $G = 1$. This is the same idea as [natural units](https://en.wikipedia.org/wiki/Natural_units) in particle physics ($c = \hbar = 1$).
 
 With $G = 1$, $M_{\text{total}} = 1$, and $R_{\text{virial}} = 1$:
 
-- The **dynamical time** $t_{\text{dyn}} = \sqrt{R^3 / GM} = 1$
+- The [**dynamical time**](https://en.wikipedia.org/wiki/Dynamical_time_scale) $t_{\text{dyn}} = \sqrt{R^3 / GM} = 1$
 - One time unit $\approx$ one crossing time of the system
 - Velocities are in units of the circular velocity at the virial radius
 
@@ -93,7 +93,7 @@ f64 gives us 8 orders of magnitude of headroom between machine precision ($10^{-
 
 Before looking at the force calculation code, we need to understand how particles are stored in memory. This is a performance-critical decision.
 
-The naive approach is **Array of Structs** (AoS):
+The naive approach is [**Array of Structs** (AoS)](https://en.wikipedia.org/wiki/AoS_and_SoA):
 
 ```rust
 // DON'T DO THIS for hot simulation data
@@ -227,6 +227,14 @@ cargo run -p headless --release -- \
     --diag-interval 100 \
     --diag-csv artifacts/benchmarks/m1_plummer_1k_diag.csv
 ```
+
+## Further Reading
+
+- [Newton's law of universal gravitation](https://en.wikipedia.org/wiki/Newton%27s_law_of_universal_gravitation) — the force law and its history
+- [Plummer model](https://en.wikipedia.org/wiki/Plummer_model) — the softened potential, density profile, and half-mass radius derivation
+- [N-body units](https://en.wikipedia.org/wiki/N-body_units) — the unit system used throughout this book
+- [Gravitational N-body problem](https://en.wikipedia.org/wiki/N-body_problem) — the general problem and why $N \geq 3$ has no closed-form solution
+- [AoS and SoA](https://en.wikipedia.org/wiki/AoS_and_SoA) — the data layout patterns and their performance tradeoffs
 
 ## What's Next
 

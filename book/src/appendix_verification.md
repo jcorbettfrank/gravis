@@ -8,7 +8,7 @@ This appendix collects all test problems with their analytical solutions and acc
 
 **Setup**: Two masses $m_1 = m_2 = 0.5$ in elliptical orbit, eccentricity $e$, semi-major axis $a = 1$.
 
-**Analytical**: Period $T = 2\pi\sqrt{a^3/(G M_{\text{total}})} = 2\pi$. Total energy $E = -G m_1 m_2 / (2a) = -0.125$ (for zero softening). Angular momentum $L = \mu \sqrt{G M_{\text{total}} a (1-e^2)}$ where $\mu = m_1 m_2 / M_{\text{total}} = 0.25$ is the reduced mass.
+**Analytical**: Period $T = 2\pi\sqrt{a^3/(G M_{\text{total}})} = 2\pi$ ([Kepler's third law](https://en.wikipedia.org/wiki/Kepler%27s_laws_of_planetary_motion#Third_law)). Total energy $E = -G m_1 m_2 / (2a) = -0.125$ for zero softening (from the [specific orbital energy](https://en.wikipedia.org/wiki/Specific_orbital_energy) of a Keplerian orbit). Angular momentum $L = \mu \sqrt{G M_{\text{total}} a (1-e^2)}$ where $\mu = m_1 m_2 / M_{\text{total}} = 0.25$ is the [reduced mass](https://en.wikipedia.org/wiki/Reduced_mass).
 
 | Test | Command | Criterion |
 |------|---------|-----------|
@@ -18,9 +18,9 @@ This appendix collects all test problems with their analytical solutions and acc
 
 ### Plummer Sphere Equilibrium
 
-**Setup**: $N$ particles sampled from the Plummer distribution function (Aarseth, Henon & Wielen 1974). Scale radius $a = 1$, total mass $M = 1$.
+**Setup**: $N$ particles sampled from the [Plummer distribution function](https://en.wikipedia.org/wiki/Plummer_model) ([Aarseth, Henon & Wielen 1974](https://ui.adsabs.harvard.edu/abs/1974A%26A....37..183A)). Scale radius $a = 1$, total mass $M = 1$.
 
-**Analytical**: Virial equilibrium $2K/|U| = 1$. Half-mass radius $r_h \approx 1.305 a$.
+**Analytical**: [Virial equilibrium](https://en.wikipedia.org/wiki/Virial_theorem) $2K/|U| = 1$. Half-mass radius $r_h \approx 1.305 a$ (from inverting the Plummer cumulative mass profile $M(r) = M r^3 / (r^2 + a^2)^{3/2}$ at $M(r_h) = M/2$).
 
 | Test | Command | Criterion |
 |------|---------|-----------|

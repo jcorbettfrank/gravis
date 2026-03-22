@@ -19,7 +19,7 @@ Euler pumps energy into the system because it always uses the "old" velocity to 
 
 ## Hamiltonian Mechanics: Why Structure Matters
 
-To understand why some integrators work and others don't, we need the Hamiltonian formulation of mechanics.
+To understand why some integrators work and others don't, we need the [Hamiltonian formulation](https://en.wikipedia.org/wiki/Hamiltonian_mechanics) of mechanics.
 
 A system of $N$ gravitating particles has a Hamiltonian (total energy as a function of positions and momenta):
 
@@ -31,13 +31,13 @@ $$\dot{\vec{r}}_i = \frac{\partial H}{\partial \vec{p}_i} = \frac{\vec{p}_i}{m_i
 
 $$\dot{\vec{p}}_i = -\frac{\partial H}{\partial \vec{r}_i} = \vec{F}_i = m_i \vec{a}_i$$
 
-The critical property: Hamiltonian flow **preserves phase space volume**. If you start with a cloud of initial conditions occupying some volume in $(\vec{r}, \vec{p})$ space, Hamiltonian evolution deforms that cloud but never compresses or expands it. This is **Liouville's theorem**.
+The critical property: Hamiltonian flow **preserves phase space volume**. If you start with a cloud of initial conditions occupying some volume in $(\vec{r}, \vec{p})$ space, Hamiltonian evolution deforms that cloud but never compresses or expands it. This is [**Liouville's theorem**](https://en.wikipedia.org/wiki/Liouville%27s_theorem_(Hamiltonian)).
 
-An integrator that preserves this property is called **symplectic**. One that doesn't — like Euler or RK4 — can systematically expand or contract phase space volumes, which manifests as secular energy drift.
+An integrator that preserves this property is called [**symplectic**](https://en.wikipedia.org/wiki/Symplectic_integrator). One that doesn't — like Euler or [RK4](https://en.wikipedia.org/wiki/Runge%E2%80%93Kutta_methods) — can systematically expand or contract phase space volumes, which manifests as secular energy drift.
 
 ## The Leapfrog Integrator
 
-The Kick-Drift-Kick (KDK) leapfrog, also known as velocity Verlet, is:
+The Kick-Drift-Kick (KDK) leapfrog, also known as [velocity Verlet](https://en.wikipedia.org/wiki/Verlet_integration#Velocity_Verlet), is:
 
 $$\vec{v}\!\left(t + \tfrac{\Delta t}{2}\right) = \vec{v}(t) + \vec{a}(t) \, \frac{\Delta t}{2} \quad \text{(half-kick)}$$
 
@@ -51,11 +51,11 @@ That's it. Four lines. Let's look at what makes this special.
 
 ### Property 1: Symplectic
 
-The leapfrog map $(\vec{r}, \vec{v}) \mapsto (\vec{r}', \vec{v}')$ is a **symplectic transformation**: it preserves the symplectic 2-form $\omega = \sum_i d\vec{r}_i \wedge d\vec{p}_i$. In practical terms, this means it exactly conserves a modified Hamiltonian:
+The leapfrog map $(\vec{r}, \vec{v}) \mapsto (\vec{r}', \vec{v}')$ is a **symplectic transformation**: it preserves the [symplectic 2-form](https://en.wikipedia.org/wiki/Symplectic_geometry) $\omega = \sum_i d\vec{r}_i \wedge d\vec{p}_i$. (This is the mathematical way to express phase-space-volume preservation; the practical consequence is what matters: bounded energy error.) In practical terms, this means it exactly conserves a modified Hamiltonian:
 
 $$\tilde{H} = H + O(\Delta t^2)$$
 
-This "shadow Hamiltonian" $\tilde{H}$ differs from the true Hamiltonian $H$ by terms of order $\Delta t^2$, but the key point is that $\tilde{H}$ is **exactly** conserved, forever. The energy errors in the true Hamiltonian are bounded and oscillating — they never grow secularly.
+This "shadow Hamiltonian" $\tilde{H}$ differs from the true Hamiltonian $H$ by terms of order $\Delta t^2$, but the key point is that $\tilde{H}$ is **exactly** conserved, forever. The energy errors in the true Hamiltonian are bounded and oscillating — they never grow secularly. This result comes from [backward error analysis](https://en.wikipedia.org/wiki/Backward_error_analysis): since the leapfrog is a composition of symplectic maps (the kick and drift are each exact solutions of separable Hamiltonian pieces), the composite map is itself symplectic and therefore exactly solves a nearby Hamiltonian.
 
 This is fundamentally different from RK4 (Runge-Kutta 4th order), which is more accurate per step ($O(\Delta t^5)$ local error vs $O(\Delta t^3)$) but not symplectic. RK4 shows linear energy drift: after $N$ steps, the error grows as $N \cdot \Delta t^5 \sim T \cdot \Delta t^4$. Leapfrog's error stays bounded at $\sim \Delta t^2$ regardless of $N$.
 
@@ -71,11 +71,11 @@ Time-reversibility further constrains error growth. Errors that would grow expon
 
 The global error is $O(\Delta t^2)$. This means halving $\Delta t$ reduces the error by $4\times$ (but doubles the cost). It's "only" second-order, compared to RK4's fourth-order. But for long-term integration, the symplectic property is worth far more than the extra order of accuracy.
 
-For higher order *and* symplecticity, the Yoshida 4th-order method composes three leapfrog substeps with carefully chosen coefficients:
+For higher order *and* symplecticity, the [Yoshida 4th-order method](https://en.wikipedia.org/wiki/Symplectic_integrator#A_fourth-order_example) composes three leapfrog substeps with carefully chosen coefficients:
 
 $$\Delta t_1 = \Delta t_3 = \frac{1}{2 - 2^{1/3}} \Delta t, \quad \Delta t_2 = -\frac{2^{1/3}}{2 - 2^{1/3}} \Delta t$$
 
-This achieves $O(\Delta t^4)$ global error while remaining symplectic. It's a future enhancement (M8).
+These specific values come from requiring cancellation of the leading error terms when the substeps are composed (via the [Baker-Campbell-Hausdorff formula](https://en.wikipedia.org/wiki/Baker%E2%80%93Campbell%E2%80%93Hausdorff_formula)). The negative middle step is unusual but essential — it's what makes the cancellation work. This achieves $O(\Delta t^4)$ global error while remaining symplectic. It's a future enhancement (M8).
 
 ### Property 4: Self-Starting (KDK vs DKD)
 
@@ -136,7 +136,7 @@ You might be tempted to fuse the half-kick and drift into one loop. Don't. Keepi
 
 The ultimate test of an integrator for gravitational dynamics is the two-body Kepler orbit — one of the few cases with an exact analytical solution.
 
-We place two equal masses ($m_1 = m_2 = 0.5$) in an elliptical orbit with eccentricity $e = 0.5$ and semi-major axis $a = 1$. From Kepler's third law, the period is:
+We place two equal masses ($m_1 = m_2 = 0.5$) in an elliptical orbit with eccentricity $e = 0.5$ and semi-major axis $a = 1$. From [Kepler's third law](https://en.wikipedia.org/wiki/Kepler%27s_laws_of_planetary_motion#Third_law), the period is:
 
 $$T = 2\pi \sqrt{\frac{a^3}{G \, M_{\text{total}}}} = 2\pi$$
 
@@ -165,7 +165,7 @@ The test is in [`crates/sim-core/tests/kepler.rs`](https://github.com/jcorbettfr
 
 ### Angular Momentum Conservation
 
-For a central force ($\vec{F} \parallel \vec{r}$), angular momentum is exactly conserved. Our softened gravity is still central (it depends only on $|\vec{r}|$), so $\vec{L} = \sum_i m_i (\vec{r}_i \times \vec{v}_i)$ should be constant.
+For a [central force](https://en.wikipedia.org/wiki/Central_force) ($\vec{F} \parallel \vec{r}$), [angular momentum](https://en.wikipedia.org/wiki/Angular_momentum) is exactly conserved — because $\vec{r} \times \vec{F} = 0$ when $\vec{F}$ is parallel to $\vec{r}$, so $d\vec{L}/dt = \sum_i \vec{r}_i \times \vec{F}_i = 0$. Our softened gravity is still central (it depends only on $|\vec{r}|$), so $\vec{L} = \sum_i m_i (\vec{r}_i \times \vec{v}_i)$ should be constant.
 
 After 100 orbits at eccentricity 0.7 (a stringent test — high eccentricity means large velocity changes at periapsis):
 
@@ -197,11 +197,11 @@ cargo test -p sim-core --release -- kepler_third_law_period
 
 ## Verification: Plummer Sphere Virial Equilibrium
 
-A self-gravitating system in equilibrium satisfies the **virial theorem**:
+A self-gravitating system in equilibrium satisfies the [**virial theorem**](https://en.wikipedia.org/wiki/Virial_theorem):
 
 $$2K + U = 0 \quad \Leftrightarrow \quad \frac{2K}{|U|} = 1$$
 
-where $K$ is total kinetic energy and $U$ is total potential energy. Our Plummer sphere initial conditions (Chapter 5) are sampled from the exact equilibrium distribution function, so the virial ratio should fluctuate around 1.0 without secular drift.
+where $K$ is total kinetic energy and $U$ is total potential energy. The derivation starts from the scalar moment of inertia $I = \sum_i m_i r_i^2$. Taking two time derivatives gives $\ddot{I} = 4K + 2U$ (after applying the equations of motion). In statistical equilibrium the system is neither expanding nor contracting, so $\langle\ddot{I}\rangle = 0$, which immediately gives $2K + U = 0$. Our Plummer sphere initial conditions (Chapter 5) are sampled from the exact equilibrium distribution function, so the virial ratio should fluctuate around 1.0 without secular drift.
 
 We run 500 particles for 20 dynamical times, sampling the virial ratio each $t_{\text{dyn}}$:
 
@@ -261,6 +261,16 @@ cargo test -p sim-core --release -- com_drift
 Leapfrog wins for gravitational dynamics: it costs the same as Euler (one force evaluation per step), is dramatically more stable, and its energy errors stay bounded over arbitrarily long integrations.
 
 The one weakness is the fixed global timestep. Close encounters (two particles passing within a few softening lengths) generate large accelerations that need small $\Delta t$ to resolve, but distant particles could use much larger $\Delta t$. Adaptive individual timesteps address this — a topic for Chapter 7 or beyond.
+
+## Further Reading
+
+- [Hamiltonian mechanics](https://en.wikipedia.org/wiki/Hamiltonian_mechanics) — the framework behind symplectic integrators
+- [Symplectic integrator](https://en.wikipedia.org/wiki/Symplectic_integrator) — why phase-space-volume preservation matters for long-term integration, including the Yoshida construction
+- [Verlet integration](https://en.wikipedia.org/wiki/Verlet_integration) — the leapfrog / velocity Verlet family of methods
+- [Backward error analysis](https://en.wikipedia.org/wiki/Backward_error_analysis) — the mathematical framework explaining shadow Hamiltonians
+- [Virial theorem](https://en.wikipedia.org/wiki/Virial_theorem) — derivation and applications in astrophysics
+- [Kepler's laws of planetary motion](https://en.wikipedia.org/wiki/Kepler%27s_laws_of_planetary_motion) — the analytical solutions we test against
+- [Runge-Kutta methods](https://en.wikipedia.org/wiki/Runge%E2%80%93Kutta_methods) — the non-symplectic alternative (RK4) and why it drifts
 
 ## What's Next
 
