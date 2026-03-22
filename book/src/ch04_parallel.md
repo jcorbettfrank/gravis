@@ -64,8 +64,8 @@ In Rust, the compiler prevents this entirely. Rayon's `par_iter_mut()` guarantee
 
 The parallel code lives in two places:
 
-- [`barnes_hut.rs`](blob/m3/crates/sim-core/src/barnes_hut.rs): `compute_accelerations` uses `(0..n).into_par_iter()` for the tree walk, with a sequential fallback for N < 1000.
-- [`integrator.rs`](blob/m3/crates/sim-core/src/integrator.rs): `LeapfrogKDK::step` remains sequential — kick/drift loops are memory-bound and don't benefit from parallelism.
+- [`barnes_hut.rs`](https://github.com/jcorbettfrank/gravis/blob/m3/crates/sim-core/src/barnes_hut.rs): `compute_accelerations` uses `(0..n).into_par_iter()` for the tree walk, with a sequential fallback for N < 1000.
+- [`integrator.rs`](https://github.com/jcorbettfrank/gravis/blob/m3/crates/sim-core/src/integrator.rs): `LeapfrogKDK::step` remains sequential — kick/drift loops are memory-bound and don't benefit from parallelism.
 
 Rayon is added as a dependency of `sim-core` (not feature-gated). The WASM target (M6) will gate it with `#[cfg]` when needed.
 

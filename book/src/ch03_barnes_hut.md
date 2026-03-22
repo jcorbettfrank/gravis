@@ -49,7 +49,7 @@ using the cell's total mass $M_\text{cell}$ and center of mass, exactly as we wo
 
 ## Force Accuracy
 
-How much error does the approximation introduce? We measure the RMS relative force error by comparing Barnes-Hut accelerations to the brute-force reference on a 1,000-particle Plummer sphere:
+How much error does the approximation introduce? We measure the RMS relative force error by comparing Barnes-Hut accelerations to the brute-force reference on a 1,000-particle Plummer sphere (test: [`tests/barnes_hut.rs`](https://github.com/jcorbettfrank/gravis/blob/m3/crates/sim-core/tests/barnes_hut.rs)):
 
 | $\theta$ | RMS Error | Max Error |
 |-----------|-----------|-----------|
@@ -62,7 +62,7 @@ At $\theta = 0.5$, the typical force error is under 0.5% — well within accepta
 
 ## Scaling
 
-The fundamental payoff of Barnes-Hut is scaling. On an M5 Pro:
+The fundamental payoff of Barnes-Hut is scaling (benchmark: [`benches/gravity.rs`](https://github.com/jcorbettfrank/gravis/blob/m3/crates/sim-core/benches/gravity.rs)). On an M5 Pro:
 
 | N | Brute-force | Barnes-Hut ($\theta=0.5$) | Speedup |
 |---|------------|--------------------------|---------|
@@ -87,7 +87,7 @@ This means momentum is conserved only approximately, not to machine precision. I
 
 ## Implementation Notes
 
-Our implementation in Rust ([`octree.rs`](blob/m3/crates/sim-core/src/octree.rs), [`barnes_hut.rs`](blob/m3/crates/sim-core/src/barnes_hut.rs)) follows the design above:
+Our implementation in Rust ([`octree.rs`](https://github.com/jcorbettfrank/gravis/blob/m3/crates/sim-core/src/octree.rs), [`barnes_hut.rs`](https://github.com/jcorbettfrank/gravis/blob/m3/crates/sim-core/src/barnes_hut.rs)) follows the design above:
 
 - **Arena-allocated octree**: all nodes live in a flat `Vec<OctreeNode>` with `[u32; 8]` child indices. One allocation per tree build instead of thousands of per-node `Box` allocations. Safe Rust, no `unsafe`.
 - **Tree rebuilt each step**: since particles move, the tree is rebuilt from scratch on every force evaluation. This is simpler than maintaining a dynamic tree and the build cost is $O(N \log N)$, dominated by the tree walk.
