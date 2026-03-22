@@ -26,7 +26,7 @@ No prior astrophysics, numerical methods, or GPU programming experience is assum
 
 ## Conventions
 
-All simulation code uses **N-body units** where $G = 1$, $M_{\text{total}} = 1$, $R_{\text{virial}} = 1$. This makes the dynamical time $t_{\text{dyn}} = 1$. Physical units (kpc, $M_\odot$, Myr) appear only when discussing specific astrophysical scenarios.
+All simulation code uses [**N-body units**](https://en.wikipedia.org/wiki/N-body_units) where $G = 1$, $M_{\text{total}} = 1$, $R_{\text{virial}} = 1$. This makes the dynamical time $t_{\text{dyn}} = 1$. Physical units (kpc, $M_\odot$, Myr) appear only when discussing specific astrophysical scenarios.
 
 All simulation math uses **f64** (64-bit floating point). GPU rendering uses f32. This distinction matters and is discussed in Chapter 1.
 
