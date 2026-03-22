@@ -111,7 +111,7 @@ cargo run -p native-app --release -- --scenario plummer -n 100000 --algorithm ba
 The Barnes-Hut algorithm makes this many particles possible in your browser. This demo runs 5,000 particles with $\theta = 0.5$ — try it with brute-force in the [full interactive demo](../index.html) to feel the difference.
 
 <div class="live-demo">
-  <iframe src="demos/plummer.html" width="100%" height="450" loading="lazy"
+  <iframe src="demos/plummer.html" width="100%" loading="lazy"
           title="Live Barnes-Hut Plummer sphere demo"></iframe>
   <p class="demo-fallback" style="display:none">
     <img src="images/m2_plummer.png" alt="Plummer sphere with Barnes-Hut">

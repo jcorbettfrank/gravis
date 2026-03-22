@@ -45,6 +45,7 @@ struct AppState {
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
+    canvas: HtmlCanvasElement,
 
     // render-core pipelines
     particle_pipeline: ParticlePipeline,
@@ -68,9 +69,19 @@ struct AppState {
     fps: f64,
     frames_since_stats: u32,
 
-    // input
+    // input (mouse)
     dragging: bool,
     last_cursor: [f64; 2],
+
+    // input (touch)
+    touch_id: Option<i32>,
+    second_touch_id: Option<i32>,
+    last_touch: [f64; 2],
+    second_touch_pos: [f64; 2],
+    pinch_distance: Option<f64>,
+
+    // resize
+    pending_resize: bool,
 }
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -238,6 +249,7 @@ pub async fn main() {
         queue,
         surface,
         surface_config,
+        canvas: canvas.clone(),
         particle_pipeline,
         axes_pipeline,
         depth_view,
@@ -254,10 +266,18 @@ pub async fn main() {
         frames_since_stats: 0,
         dragging: false,
         last_cursor: [0.0; 2],
+        touch_id: None,
+        second_touch_id: None,
+        last_touch: [0.0; 2],
+        second_touch_pos: [0.0; 2],
+        pinch_distance: None,
+        pending_resize: false,
     }));
 
     // --- Input event listeners ---
     setup_input_handlers(&canvas, &state);
+    setup_touch_handlers(&canvas, &state);
+    setup_resize_observer(&canvas, &state);
 
     // --- Control event listeners ---
     setup_control_handlers(&document, &state);
@@ -280,6 +300,13 @@ pub async fn main() {
 
         {
             let mut s = state_loop.borrow_mut();
+
+            // Handle pending resize before rendering
+            if s.pending_resize {
+                handle_resize(&mut s);
+                s.pending_resize = false;
+            }
+
             s.last_frame_ms = dt_ms;
             s.fps = if dt_ms > 0.0 { 1000.0 / dt_ms } else { 0.0 };
 
@@ -501,6 +528,178 @@ fn setup_input_handlers(canvas: &HtmlCanvasElement, state: &Rc<RefCell<AppState>
         }) as Box<dyn FnMut(_)>);
         canvas
             .add_event_listener_with_callback("contextmenu", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Resize handling
+// ---------------------------------------------------------------------------
+
+fn handle_resize(s: &mut AppState) {
+    let w = s.canvas.client_width() as u32;
+    let h = s.canvas.client_height() as u32;
+    if w == 0 || h == 0 {
+        return;
+    }
+    if w == s.surface_config.width && h == s.surface_config.height {
+        return;
+    }
+    s.canvas.set_width(w);
+    s.canvas.set_height(h);
+    s.surface_config.width = w;
+    s.surface_config.height = h;
+    s.surface.configure(&s.device, &s.surface_config);
+    s.depth_view = create_depth_texture(&s.device, w, h);
+    s.camera.set_aspect_ratio(w as f32 / h.max(1) as f32);
+}
+
+fn setup_resize_observer(canvas: &HtmlCanvasElement, state: &Rc<RefCell<AppState>>) {
+    let s = state.clone();
+    let cb = Closure::wrap(Box::new(move |_entries: js_sys::Array| {
+        s.borrow_mut().pending_resize = true;
+    }) as Box<dyn FnMut(js_sys::Array)>);
+
+    let observer = web_sys::ResizeObserver::new(cb.as_ref().unchecked_ref())
+        .expect("Failed to create ResizeObserver");
+    observer.observe(canvas);
+    cb.forget();
+    // Leak the observer so it stays alive for the lifetime of the page.
+    std::mem::forget(observer);
+}
+
+// ---------------------------------------------------------------------------
+// Touch handlers
+// ---------------------------------------------------------------------------
+
+fn setup_touch_handlers(canvas: &HtmlCanvasElement, state: &Rc<RefCell<AppState>>) {
+    // touchstart
+    {
+        let s = state.clone();
+        let cb = Closure::wrap(Box::new(move |e: web_sys::TouchEvent| {
+            e.prevent_default();
+            let mut st = s.borrow_mut();
+            let touches = e.changed_touches();
+            for i in 0..touches.length() {
+                let t = touches.get(i).unwrap();
+                let id = t.identifier();
+                let pos = [t.client_x() as f64, t.client_y() as f64];
+                if st.touch_id.is_none() {
+                    st.touch_id = Some(id);
+                    st.last_touch = pos;
+                } else if st.second_touch_id.is_none() && st.touch_id != Some(id) {
+                    st.second_touch_id = Some(id);
+                    st.second_touch_pos = pos;
+                    // Compute initial pinch distance
+                    let dx = st.last_touch[0] - st.second_touch_pos[0];
+                    let dy = st.last_touch[1] - st.second_touch_pos[1];
+                    st.pinch_distance = Some((dx * dx + dy * dy).sqrt());
+                }
+            }
+        }) as Box<dyn FnMut(_)>);
+        let opts = web_sys::AddEventListenerOptions::new();
+        opts.set_passive(false);
+        canvas
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "touchstart",
+                cb.as_ref().unchecked_ref(),
+                &opts,
+            )
+            .unwrap();
+        cb.forget();
+    }
+
+    // touchmove
+    {
+        let s = state.clone();
+        let cb = Closure::wrap(Box::new(move |e: web_sys::TouchEvent| {
+            e.prevent_default();
+            let mut st = s.borrow_mut();
+            let touches = e.changed_touches();
+
+            // Update positions of tracked touches
+            for i in 0..touches.length() {
+                let t = touches.get(i).unwrap();
+                let id = t.identifier();
+                let pos = [t.client_x() as f64, t.client_y() as f64];
+                if st.touch_id == Some(id) {
+                    let old = st.last_touch;
+                    st.last_touch = pos;
+                    // Single-finger orbit (only if no pinch active)
+                    if st.second_touch_id.is_none() {
+                        let dx = (pos[0] - old[0]) as f32;
+                        let dy = (pos[1] - old[1]) as f32;
+                        st.camera.desired_yaw -= dx * 0.005;
+                        st.camera.desired_pitch += dy * 0.005;
+                        st.camera.desired_pitch = st.camera.desired_pitch.clamp(-1.55, 1.55);
+                    }
+                } else if st.second_touch_id == Some(id) {
+                    st.second_touch_pos = pos;
+                }
+            }
+
+            // Two-finger pinch zoom
+            if st.touch_id.is_some() && st.second_touch_id.is_some() {
+                let dx = st.last_touch[0] - st.second_touch_pos[0];
+                let dy = st.last_touch[1] - st.second_touch_pos[1];
+                let new_dist = (dx * dx + dy * dy).sqrt();
+                if let Some(old_dist) = st.pinch_distance {
+                    if old_dist > 1.0 {
+                        let ratio = new_dist / old_dist;
+                        st.camera.desired_distance /= ratio as f32;
+                        st.camera.desired_distance =
+                            st.camera.desired_distance.clamp(0.1, 100.0);
+                    }
+                }
+                st.pinch_distance = Some(new_dist);
+            }
+        }) as Box<dyn FnMut(_)>);
+        let opts = web_sys::AddEventListenerOptions::new();
+        opts.set_passive(false);
+        canvas
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "touchmove",
+                cb.as_ref().unchecked_ref(),
+                &opts,
+            )
+            .unwrap();
+        cb.forget();
+    }
+
+    // touchend / touchcancel
+    for event_name in &["touchend", "touchcancel"] {
+        let s = state.clone();
+        let cb = Closure::wrap(Box::new(move |e: web_sys::TouchEvent| {
+            e.prevent_default();
+            let mut st = s.borrow_mut();
+            let touches = e.changed_touches();
+            for i in 0..touches.length() {
+                let id = touches.get(i).unwrap().identifier();
+                if st.touch_id == Some(id) {
+                    // Promote second touch to primary if it exists
+                    if let Some(second_id) = st.second_touch_id {
+                        st.touch_id = Some(second_id);
+                        st.last_touch = st.second_touch_pos;
+                        st.second_touch_id = None;
+                    } else {
+                        st.touch_id = None;
+                    }
+                    st.pinch_distance = None;
+                } else if st.second_touch_id == Some(id) {
+                    st.second_touch_id = None;
+                    st.pinch_distance = None;
+                }
+            }
+        }) as Box<dyn FnMut(_)>);
+        let opts = web_sys::AddEventListenerOptions::new();
+        opts.set_passive(false);
+        canvas
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                event_name,
+                cb.as_ref().unchecked_ref(),
+                &opts,
+            )
             .unwrap();
         cb.forget();
     }

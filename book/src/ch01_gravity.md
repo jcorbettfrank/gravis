@@ -233,7 +233,7 @@ cargo run -p headless --release -- \
 Watch a two-body Kepler orbit evolving in real time — the force law and Plummer softening in action. Drag to orbit the camera, scroll to zoom.
 
 <div class="live-demo">
-  <iframe src="demos/two-body.html" width="100%" height="450" loading="lazy"
+  <iframe src="demos/two-body.html" width="100%" loading="lazy"
           title="Live two-body Kepler orbit demo"></iframe>
   <p class="demo-fallback" style="display:none">
     <img src="images/m2_kepler.png" alt="Two-body Kepler orbit">
