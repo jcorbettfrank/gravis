@@ -81,8 +81,8 @@ docs/               Plan and architecture decision records
 
 The `native-app` crate provides a real-time 3D renderer for macOS. It runs the simulation on a background thread while rendering at 60fps with interactive camera controls and a diagnostic HUD.
 
-![Plummer sphere (5000 particles)](../artifacts/media/m2_plummer.png)
-![Kepler two-body orbit](../artifacts/media/m2_kepler.png)
+![Plummer sphere (5000 particles)](images/m2_plummer.png)
+![Kepler two-body orbit](images/m2_kepler.png)
 
 Future milestones add `crates/web-app/` (WASM+WebGPU). See `docs/PLAN.md` for the roadmap.
 

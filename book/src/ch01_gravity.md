@@ -12,7 +12,7 @@ $$\vec{F}_{ij} = -\frac{G \, m_i \, m_j}{\left|\vec{r}_{ij}\right|^2} \hat{r}_{i
 
 where $\vec{r}_{ij} = \vec{r}_j - \vec{r}_i$ is the displacement vector from $i$ to $j$, and $\hat{r}_{ij}$ is its unit vector.
 
-The total force on particle $i$ is the sum over all other particles:
+The total force on particle $i$ is the sum over all other particles. We rewrite the expression by absorbing the unit vector $\hat{r}_{ij} = \vec{r}_{ij}/|\vec{r}_{ij}|$ into the denominator — the $1/r^2$ form and the $\vec{r}/r^3$ form are equivalent, but the latter is what we'll actually implement in code since it avoids computing the unit vector separately:
 
 $$\vec{F}_i = \sum_{j \neq i} \vec{F}_{ij} = \sum_{j \neq i} \frac{G \, m_i \, m_j \, \vec{r}_{ij}}{\left|\vec{r}_{ij}\right|^3}$$
 
