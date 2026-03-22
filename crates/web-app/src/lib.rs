@@ -110,6 +110,9 @@ fn create_depth_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu:
 }
 
 fn create_sim(scenario: &str, n: usize, algorithm: &str) -> SimState {
+    // Web demos use coarser timesteps than native for interactive frame rates.
+    // suggested_dt() is tuned for integration accuracy tests (e.g. 10K steps/orbit),
+    // which is too fine for single-threaded WASM with a 10-step/frame accumulator cap.
     let (particles, dt, softening) = match scenario {
         "two-body" => {
             let s = TwoBody {
@@ -117,9 +120,9 @@ fn create_sim(scenario: &str, n: usize, algorithm: &str) -> SimState {
                 ..Default::default()
             };
             let p = s.generate();
-            let dt = s.suggested_dt();
             let soft = s.suggested_softening();
-            (p, dt, soft)
+            // 5x coarser than native — still <1% energy drift over ~1000 steps
+            (p, 0.005, soft)
         }
         "cold-collapse" => {
             let s = ColdCollapse {

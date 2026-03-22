@@ -277,7 +277,7 @@ fn generate_galaxy(
         halo_scale_radius,
         disk_mass_table,
     );
-    generate_bulge(particles, rng, n_bulge, m_bulge);
+    generate_bulge(particles, rng, n_bulge, m_bulge, bulge_scale_radius);
     generate_halo(
         particles,
         rng,
@@ -403,9 +403,10 @@ fn generate_bulge(
     rng: &mut ChaCha20Rng,
     n_bulge: usize,
     m_bulge: f64,
+    bulge_scale_radius: f64,
 ) {
     let m_per_particle = m_bulge / n_bulge as f64;
-    let a = 0.3; // bulge_scale_radius (Plummer)
+    let a = bulge_scale_radius;
 
     for _ in 0..n_bulge {
         // Plummer sphere sampling (same as PlummerSphere scenario)
