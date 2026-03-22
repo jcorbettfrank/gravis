@@ -7,7 +7,8 @@
 ///
 /// All intermediate textures use Rgba16Float at half resolution for performance.
 
-const FULLSCREEN_VERT: &str = r#"
+/// Fullscreen triangle vertex shader, shared by bloom and tonemap passes.
+pub const FULLSCREEN_VERT: &str = r#"
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -159,16 +160,18 @@ pub struct BloomPipeline {
     blur_bgl: wgpu::BindGroupLayout,
     composite_bgl: wgpu::BindGroupLayout,
 
-    // Bind groups (recreated on resize; threshold and composite are per-frame)
+    // Bind groups (recreated on resize and when HDR source changes)
+    threshold_bg: wgpu::BindGroup,
     blur_h_bg: wgpu::BindGroup,
     blur_v_bg: wgpu::BindGroup,
+    composite_bg: wgpu::BindGroup,
 
     half_width: u32,
     half_height: u32,
 }
 
 impl BloomPipeline {
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, width: u32, height: u32) -> Self {
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, width: u32, height: u32, hdr_view: &wgpu::TextureView) -> Self {
         let half_width = (width / 2).max(1);
         let half_height = (height / 2).max(1);
 
@@ -349,6 +352,50 @@ impl BloomPipeline {
             ],
         });
 
+        let bloom_view = bloom_texture.create_view(&Default::default());
+
+        let threshold_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("bloom threshold bg"),
+            layout: &threshold_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(hdr_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: params_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        let composite_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("bloom composite bg"),
+            layout: &composite_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(hdr_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&bloom_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: params_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
         Self {
             threshold_pipeline,
             blur_pipeline,
@@ -363,14 +410,17 @@ impl BloomPipeline {
             threshold_bgl,
             blur_bgl,
             composite_bgl,
+            threshold_bg,
             blur_h_bg,
             blur_v_bg,
+            composite_bg,
             half_width,
             half_height,
         }
     }
 
     /// Recreate textures and bind groups when the window resizes.
+    /// Must be followed by `update_source` with the new HDR view.
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
         self.half_width = (width / 2).max(1);
         self.half_height = (height / 2).max(1);
@@ -387,6 +437,53 @@ impl BloomPipeline {
             create_half_res_texture(device, self.half_width, self.half_height, "bloom final");
 
         self.recreate_blur_bind_groups(device);
+    }
+
+    /// Recreate threshold and composite bind groups when the HDR source changes.
+    pub fn update_source(&mut self, device: &wgpu::Device, hdr_view: &wgpu::TextureView) {
+        let bloom_view = self.bloom_texture.create_view(&Default::default());
+
+        self.threshold_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("bloom threshold bg"),
+            layout: &self.threshold_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(hdr_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.params_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        self.composite_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("bloom composite bg"),
+            layout: &self.composite_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(hdr_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&bloom_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: self.params_buffer.as_entire_binding(),
+                },
+            ],
+        });
     }
 
     fn recreate_blur_bind_groups(&mut self, device: &wgpu::Device) {
@@ -432,40 +529,16 @@ impl BloomPipeline {
         });
     }
 
-    /// Run the bloom post-processing passes.
-    ///
-    /// `hdr_view` is the scene rendered to an Rgba16Float texture.
-    /// The result is composited back into `output_view` (also Rgba16Float).
+    /// Run the bloom post-processing passes using cached bind groups.
+    /// Call `update_source` whenever the HDR view changes (e.g. on resize).
     pub fn render(
-        &mut self,
-        device: &wgpu::Device,
+        &self,
         encoder: &mut wgpu::CommandEncoder,
-        hdr_view: &wgpu::TextureView,
         output_view: &wgpu::TextureView,
     ) {
         let brightness_view = self.brightness_texture.create_view(&Default::default());
         let blur_int_view = self.blur_intermediate.create_view(&Default::default());
         let bloom_view = self.bloom_texture.create_view(&Default::default());
-
-        // Create threshold bind group with the actual HDR input
-        let threshold_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("bloom threshold bg"),
-            layout: &self.threshold_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(hdr_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.params_buffer.as_entire_binding(),
-                },
-            ],
-        });
 
         // Pass 1: Threshold → brightness_texture
         {
@@ -484,7 +557,7 @@ impl BloomPipeline {
                 ..Default::default()
             });
             pass.set_pipeline(&self.threshold_pipeline);
-            pass.set_bind_group(0, &threshold_bg, &[]);
+            pass.set_bind_group(0, &self.threshold_bg, &[]);
             pass.draw(0..3, 0..1);
         }
 
@@ -531,29 +604,6 @@ impl BloomPipeline {
         }
 
         // Pass 4: Composite scene + bloom → output
-        let composite_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("bloom composite bg"),
-            layout: &self.composite_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(hdr_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&bloom_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: self.params_buffer.as_entire_binding(),
-                },
-            ],
-        });
-
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("bloom composite pass"),
@@ -570,7 +620,7 @@ impl BloomPipeline {
                 ..Default::default()
             });
             pass.set_pipeline(&self.composite_pipeline);
-            pass.set_bind_group(0, &composite_bg, &[]);
+            pass.set_bind_group(0, &self.composite_bg, &[]);
             pass.draw(0..3, 0..1);
         }
     }
@@ -600,6 +650,27 @@ fn create_half_res_texture(
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
     })
+}
+
+pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
+/// Create a depth texture for the scene render pass.
+pub fn create_depth_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("depth texture"),
+        size: wgpu::Extent3d {
+            width: width.max(1),
+            height: height.max(1),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: DEPTH_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    texture.create_view(&wgpu::TextureViewDescriptor::default())
 }
 
 /// Create an HDR texture at full resolution for the scene render target.

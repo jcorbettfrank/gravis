@@ -88,9 +88,6 @@ impl Scenario for GalaxyCollision {
         let n_bulge = ((self.n_per_galaxy as f64) * m_bulge / m_total).round() as usize;
         let n_halo = self.n_per_galaxy - n_disk - n_bulge;
 
-        // Pre-compute disk enclosed mass lookup table for V_c calculation
-        let disk_mass_table = DiskMassTable::new(m_disk, self.disk_scale_radius, self.disk_max_radius);
-
         let total_particles = self.n_per_galaxy * 2;
         let mut particles = Particles::new(total_particles);
 
@@ -111,7 +108,6 @@ impl Scenario for GalaxyCollision {
             self.bulge_scale_radius,
             self.halo_scale_radius,
             self.halo_max_radius,
-            &disk_mass_table,
         );
         let g1_end = particles.count;
 
@@ -132,7 +128,6 @@ impl Scenario for GalaxyCollision {
             self.bulge_scale_radius,
             self.halo_scale_radius,
             self.halo_max_radius,
-            &disk_mass_table,
         );
         let g2_end = particles.count;
 
@@ -193,52 +188,16 @@ impl Scenario for GalaxyCollision {
 // Disk enclosed mass lookup table
 // ---------------------------------------------------------------------------
 
-/// Pre-computed enclosed mass M_disk(<R) for the exponential disk.
+/// Enclosed mass of an exponential disk at radius r.
 ///
-/// The exponential disk has surface density Σ(R) = Σ_0 exp(-R/R_d).
-/// The enclosed mass is M(<R) = 2π ∫₀ᴿ Σ(R') R' dR'
-///   = M_total * [1 - (1 + R/R_d) * exp(-R/R_d)]
-///
-/// This has a closed form! But we tabulate it for fast interpolation
-/// alongside the other components in the circular velocity calculation.
-struct DiskMassTable {
-    radii: Vec<f64>,
-    enclosed: Vec<f64>,
-}
-
-impl DiskMassTable {
-    fn new(m_disk: f64, scale_radius: f64, max_radius: f64) -> Self {
-        let n_bins = 200;
-        let mut radii = Vec::with_capacity(n_bins);
-        let mut enclosed = Vec::with_capacity(n_bins);
-        let r_d = scale_radius;
-
-        for i in 0..n_bins {
-            let r = max_radius * (i as f64 + 0.5) / n_bins as f64;
-            let x = r / r_d;
-            // M(<R) = M_total * [1 - (1 + x) * exp(-x)]
-            let m = m_disk * (1.0 - (1.0 + x) * (-x).exp());
-            radii.push(r);
-            enclosed.push(m);
-        }
-
-        Self { radii, enclosed }
+/// Surface density Σ(R) = Σ_0 exp(-R/R_d).
+/// M(<R) = M_total * [1 - (1 + R/R_d) * exp(-R/R_d)]
+fn disk_enclosed_mass(r: f64, m_disk: f64, scale_radius: f64) -> f64 {
+    if r <= 0.0 {
+        return 0.0;
     }
-
-    fn enclosed_mass(&self, r: f64) -> f64 {
-        if r <= 0.0 {
-            return 0.0;
-        }
-        if r >= *self.radii.last().unwrap() {
-            return *self.enclosed.last().unwrap();
-        }
-        // Linear interpolation
-        let dr = self.radii[1] - self.radii[0];
-        let idx = ((r - self.radii[0]) / dr).max(0.0) as usize;
-        let idx = idx.min(self.radii.len() - 2);
-        let frac = (r - self.radii[idx]) / dr;
-        self.enclosed[idx] + frac * (self.enclosed[idx + 1] - self.enclosed[idx])
-    }
+    let x = r / scale_radius;
+    m_disk * (1.0 - (1.0 + x) * (-x).exp())
 }
 
 // ---------------------------------------------------------------------------
@@ -261,7 +220,6 @@ fn generate_galaxy(
     bulge_scale_radius: f64,
     halo_scale_radius: f64,
     halo_max_radius: f64,
-    disk_mass_table: &DiskMassTable,
 ) {
     generate_disk(
         particles,
@@ -275,37 +233,38 @@ fn generate_galaxy(
         disk_max_radius,
         bulge_scale_radius,
         halo_scale_radius,
-        disk_mass_table,
     );
     generate_bulge(particles, rng, n_bulge, m_bulge, bulge_scale_radius);
     generate_halo(
         particles,
         rng,
         n_halo,
+        m_disk,
         m_bulge,
         m_halo,
+        disk_scale_radius,
         halo_scale_radius,
         halo_max_radius,
         bulge_scale_radius,
-        disk_mass_table,
     );
 }
 
 /// Compute circular velocity from the combined potential at radius R in the disk plane.
 fn circular_velocity(
     r: f64,
+    m_disk: f64,
+    disk_scale_radius: f64,
     m_bulge: f64,
     bulge_a: f64,
     m_halo: f64,
     halo_a: f64,
-    disk_mass_table: &DiskMassTable,
 ) -> f64 {
     if r <= 0.0 {
         return 0.0;
     }
 
     // Disk contribution: V_c² = G * M_disk(<R) / R
-    let v2_disk = G * disk_mass_table.enclosed_mass(r) / r;
+    let v2_disk = G * disk_enclosed_mass(r, m_disk, disk_scale_radius) / r;
 
     // Plummer bulge: V_c² = G * M_b * R² / (R² + a²)^(3/2)
     let v2_bulge = G * m_bulge * r * r / (r * r + bulge_a * bulge_a).powf(1.5);
@@ -330,7 +289,6 @@ fn generate_disk(
     max_radius: f64,
     bulge_scale_radius: f64,
     halo_scale_radius: f64,
-    disk_mass_table: &DiskMassTable,
 ) {
     let m_per_particle = m_disk / n_disk as f64;
     let r_d = scale_radius;
@@ -373,11 +331,12 @@ fn generate_disk(
         // Circular velocity from combined potential
         let v_c = circular_velocity(
             r,
+            m_disk,
+            scale_radius,
             m_bulge,
             bulge_scale_radius,
             m_halo,
             halo_scale_radius,
-            disk_mass_table,
         );
 
         // Velocity: circular + small radial dispersion for stability
@@ -405,44 +364,15 @@ fn generate_bulge(
     m_bulge: f64,
     bulge_scale_radius: f64,
 ) {
+    use super::plummer_sphere::sample_plummer_particle;
+
     let m_per_particle = m_bulge / n_bulge as f64;
-    let a = bulge_scale_radius;
-
     for _ in 0..n_bulge {
-        // Plummer sphere sampling (same as PlummerSphere scenario)
-        let x_mass: f64 = rng.random_range(0.001..1.0);
-        let r = a / (x_mass.powf(-2.0 / 3.0) - 1.0).sqrt();
-
-        let cos_theta: f64 = rng.random_range(-1.0..1.0);
-        let sin_theta = (1.0 - cos_theta * cos_theta).sqrt();
-        let phi: f64 = rng.random_range(0.0..2.0 * std::f64::consts::PI);
-
-        let px = r * sin_theta * phi.cos();
-        let py = r * sin_theta * phi.sin();
-        let pz = r * cos_theta;
-
-        // Velocity from Plummer DF: v_esc = sqrt(2GM / sqrt(r² + a²))
-        let v_esc = (2.0 * G * m_bulge / (r * r + a * a).sqrt()).sqrt();
-        let q = loop {
-            let q: f64 = rng.random_range(0.0..1.0);
-            let g = q * q * (1.0 - q * q).powf(3.5);
-            let g_max = 0.1;
-            let u: f64 = rng.random();
-            if u < g / g_max {
-                break q;
-            }
-        };
-        let v = q * v_esc;
-
-        let cos_theta_v: f64 = rng.random_range(-1.0..1.0);
-        let sin_theta_v = (1.0 - cos_theta_v * cos_theta_v).sqrt();
-        let phi_v: f64 = rng.random_range(0.0..2.0 * std::f64::consts::PI);
-
-        let vx = v * sin_theta_v * phi_v.cos();
-        let vy = v * sin_theta_v * phi_v.sin();
-        let vz = v * cos_theta_v;
-
-        particles.add_typed(px, py, pz, vx, vy, vz, m_per_particle, ParticleType::BulgeStar as u8);
+        let (pos, vel) = sample_plummer_particle(rng, m_bulge, bulge_scale_radius);
+        particles.add_typed(
+            pos[0], pos[1], pos[2], vel[0], vel[1], vel[2],
+            m_per_particle, ParticleType::BulgeStar as u8,
+        );
     }
 }
 
@@ -451,12 +381,13 @@ fn generate_halo(
     particles: &mut Particles,
     rng: &mut ChaCha20Rng,
     n_halo: usize,
+    m_disk: f64,
     m_bulge: f64,
     m_halo: f64,
+    disk_scale_radius: f64,
     halo_scale_radius: f64,
     halo_max_radius: f64,
     bulge_scale_radius: f64,
-    disk_mass_table: &DiskMassTable,
 ) {
     let m_per_particle = m_halo / n_halo as f64;
     let a = halo_scale_radius;
@@ -488,11 +419,12 @@ fn generate_halo(
         // This is the virial equilibrium approximation
         let v_c = circular_velocity(
             r,
+            m_disk,
+            disk_scale_radius,
             m_bulge,
             bulge_scale_radius,
             m_halo,
             a,
-            disk_mass_table,
         );
         let sigma = v_c / 2.0_f64.sqrt();
 

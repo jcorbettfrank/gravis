@@ -1,4 +1,5 @@
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -18,7 +19,7 @@ use crate::Cli;
 pub struct RenderSnapshot {
     pub positions: Vec<[f32; 3]>,
     pub masses: Vec<f32>,
-    pub particle_types: Vec<u8>,
+    pub particle_types: Arc<Vec<u8>>,
     pub center_of_mass: [f32; 3],
     pub sim_time: f64,
     pub step: u64,
@@ -177,9 +178,12 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
     let mut speed_multiplier = cli.speed;
     let mut paused = false;
 
+    // Particle types are invariant — share via Arc to avoid cloning per snapshot
+    let particle_types = Arc::new(particles.particle_type.clone());
+
     // Send initial snapshot with diagnostics
     let initial_diag = diagnostics::compute(&particles, softening, sim_time, step);
-    let _ = tx.send(build_render_snapshot(&particles, &initial_diag));
+    let _ = tx.send(build_render_snapshot(&particles, &initial_diag, &particle_types));
 
     let wall_start = Instant::now();
     let mut last_snap_send = Instant::now();
@@ -238,7 +242,7 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
 
         // Send snapshot at ~60fps
         if last_snap_send.elapsed() >= SNAP_INTERVAL {
-            let snap = build_render_snapshot_with_diag(&particles, &cached_diag, sim_time, step);
+            let snap = build_render_snapshot_with_diag(&particles, &cached_diag, sim_time, step, &particle_types);
             if tx.send(snap).is_err() {
                 return; // Receiver dropped
             }
@@ -250,8 +254,9 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
 fn build_render_snapshot(
     particles: &sim_core::particle::Particles,
     diag: &diagnostics::Diagnostics,
+    particle_types: &Arc<Vec<u8>>,
 ) -> RenderSnapshot {
-    build_render_snapshot_with_diag(particles, diag, diag.time, diag.step)
+    build_render_snapshot_with_diag(particles, diag, diag.time, diag.step, particle_types)
 }
 
 fn build_render_snapshot_with_diag(
@@ -259,6 +264,7 @@ fn build_render_snapshot_with_diag(
     diag: &diagnostics::Diagnostics,
     sim_time: f64,
     step: u64,
+    particle_types: &Arc<Vec<u8>>,
 ) -> RenderSnapshot {
     let n = particles.count;
     let mut positions = Vec::with_capacity(n);
@@ -276,7 +282,7 @@ fn build_render_snapshot_with_diag(
     RenderSnapshot {
         positions,
         masses,
-        particle_types: particles.particle_type.clone(),
+        particle_types: Arc::clone(particle_types),
         center_of_mass: [
             diag.center_of_mass[0] as f32,
             diag.center_of_mass[1] as f32,

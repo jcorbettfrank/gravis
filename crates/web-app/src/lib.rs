@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
 use render_core::axes::AxesPipeline;
-use render_core::bloom::{self, BloomPipeline, HDR_FORMAT};
+use render_core::bloom::{self, BloomPipeline, DEPTH_FORMAT, HDR_FORMAT};
 use render_core::camera::OrbitalCamera;
 use render_core::color;
 use render_core::particles::ParticlePipeline;
@@ -85,29 +85,12 @@ struct AppState {
     dragging: bool,
     last_cursor: [f64; 2],
 
-    // cached colors
+    // scratch buffers (reused across frames to avoid per-frame allocation)
+    scratch_positions: Vec<[f32; 3]>,
+    scratch_masses: Vec<f32>,
     cached_colors: Vec<[f32; 4]>,
 }
 
-const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-
-fn create_depth_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("depth texture"),
-        size: wgpu::Extent3d {
-            width: width.max(1),
-            height: height.max(1),
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: DEPTH_FORMAT,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
-    texture.create_view(&wgpu::TextureViewDescriptor::default())
-}
 
 fn create_sim(scenario: &str, n: usize, algorithm: &str) -> SimState {
     // Web demos use coarser timesteps than native for interactive frame rates.
@@ -263,15 +246,15 @@ pub async fn main() {
         });
 
     let axes_pipeline = AxesPipeline::new(&device, HDR_FORMAT, DEPTH_FORMAT, &camera_bind_group_layout);
-    let depth_view = create_depth_texture(&device, width, height);
+    let depth_view = bloom::create_depth_texture(&device, width, height);
     let camera = OrbitalCamera::new(width as f32 / height.max(1) as f32);
 
     let hdr_texture = bloom::create_hdr_texture(&device, width, height);
     let hdr_view = hdr_texture.create_view(&Default::default());
     let hdr_composited = bloom::create_hdr_texture(&device, width, height);
     let hdr_composited_view = hdr_composited.create_view(&Default::default());
-    let bloom_pipeline = BloomPipeline::new(&device, &queue, width, height);
-    let tonemap_pipeline = ToneMapPipeline::new(&device, format);
+    let bloom_pipeline = BloomPipeline::new(&device, &queue, width, height, &hdr_view);
+    let tonemap_pipeline = ToneMapPipeline::new(&device, format, &hdr_composited_view);
 
     // Read initial config from DOM
     let scenario_name = read_select_value(&document, "scenario").unwrap_or("plummer".into());
@@ -280,6 +263,13 @@ pub async fn main() {
     let speed = read_range_value(&document, "speed").unwrap_or(1) as f64;
 
     let sim = create_sim(&scenario_name, particle_count, &algorithm_name);
+
+    // Pre-compute colors and masses (invariant within a run)
+    let n = sim.particles.count;
+    let cached_colors: Vec<[f32; 4]> = sim.particles.particle_type.iter()
+        .map(|&pt| color::particle_type_to_color(pt))
+        .collect();
+    let scratch_masses: Vec<f32> = sim.particles.mass.iter().map(|&m| m as f32).collect();
 
     let state = Rc::new(RefCell::new(AppState {
         device,
@@ -308,7 +298,9 @@ pub async fn main() {
         frames_since_stats: 0,
         dragging: false,
         last_cursor: [0.0; 2],
-        cached_colors: Vec::new(),
+        scratch_positions: Vec::with_capacity(n),
+        scratch_masses,
+        cached_colors,
     }));
 
     // --- Input event listeners ---
@@ -391,6 +383,15 @@ pub async fn main() {
     request_animation_frame(g.borrow().as_ref().unwrap());
 }
 
+/// Refresh cached colors and masses after a scenario change.
+fn refresh_sim_cache(s: &mut AppState) {
+    s.cached_colors = s.sim.particles.particle_type.iter()
+        .map(|&pt| color::particle_type_to_color(pt))
+        .collect();
+    s.scratch_masses = s.sim.particles.mass.iter().map(|&m| m as f32).collect();
+    s.scratch_positions = Vec::with_capacity(s.sim.particles.count);
+}
+
 fn render_frame(s: &mut AppState) {
     let camera_uniform = s.camera.build_uniform();
 
@@ -401,28 +402,22 @@ fn render_frame(s: &mut AppState) {
         bytemuck::bytes_of(&camera_uniform),
     );
 
-    // Update particle instances with colors
+    // Update particle positions into scratch buffer (reused across frames)
     let n = s.sim.particles.count;
-    let positions: Vec<[f32; 3]> = (0..n)
-        .map(|i| {
-            [
-                s.sim.particles.x[i] as f32,
-                s.sim.particles.y[i] as f32,
-                s.sim.particles.z[i] as f32,
-            ]
-        })
-        .collect();
-    let masses: Vec<f32> = s.sim.particles.mass.iter().map(|&m| m as f32).collect();
-
-    // Compute colors from particle types
-    s.cached_colors.clear();
-    s.cached_colors.reserve(n);
-    for &pt in &s.sim.particles.particle_type {
-        s.cached_colors.push(color::particle_type_to_color(pt));
+    s.scratch_positions.clear();
+    for i in 0..n {
+        s.scratch_positions.push([
+            s.sim.particles.x[i] as f32,
+            s.sim.particles.y[i] as f32,
+            s.sim.particles.z[i] as f32,
+        ]);
     }
 
-    s.particle_pipeline
-        .update_instances(&s.queue, &s.device, &positions, &masses, &s.cached_colors);
+    // Masses and colors are invariant within a run — precomputed at sim creation
+    s.particle_pipeline.update_instances(
+        &s.queue, &s.device,
+        &s.scratch_positions, &s.scratch_masses, &s.cached_colors,
+    );
 
     let surface_tex = match s.surface.get_current_texture() {
         Ok(t) => t,
@@ -477,11 +472,10 @@ fn render_frame(s: &mut AppState) {
 
     // Pass 2: Bloom → hdr_composited
     s.bloom_pipeline
-        .render(&s.device, &mut encoder, &s.hdr_view, &s.hdr_composited_view);
+        .render(&mut encoder, &s.hdr_composited_view);
 
     // Pass 3: Tone map → LDR surface
-    s.tonemap_pipeline
-        .render(&s.device, &mut encoder, &s.hdr_composited_view, &view);
+    s.tonemap_pipeline.render(&mut encoder, &view);
 
     s.queue.submit(Some(encoder.finish()));
     surface_tex.present();
@@ -592,6 +586,7 @@ fn setup_control_handlers(document: &web_sys::Document, state: &Rc<RefCell<AppSt
                 if let Some(val) = read_select_value(&doc, "scenario") {
                     st.scenario_name = val;
                     st.sim = create_sim(&st.scenario_name, st.particle_count, &st.algorithm_name);
+                    refresh_sim_cache(&mut st);
                 }
             }
         }) as Box<dyn FnMut(_)>);
@@ -609,6 +604,7 @@ fn setup_control_handlers(document: &web_sys::Document, state: &Rc<RefCell<AppSt
                 if let Some(val) = read_select_value(&doc, "algorithm") {
                     st.algorithm_name = val;
                     st.sim = create_sim(&st.scenario_name, st.particle_count, &st.algorithm_name);
+                    refresh_sim_cache(&mut st);
                 }
             }
         }) as Box<dyn FnMut(_)>);
@@ -626,6 +622,7 @@ fn setup_control_handlers(document: &web_sys::Document, state: &Rc<RefCell<AppSt
                 if let Some(val) = read_range_value(&doc, "particle-count") {
                     st.particle_count = val as usize;
                     st.sim = create_sim(&st.scenario_name, st.particle_count, &st.algorithm_name);
+                    refresh_sim_cache(&mut st);
                 }
             }
         }) as Box<dyn FnMut(_)>);

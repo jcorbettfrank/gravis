@@ -1,7 +1,7 @@
 use winit::window::Window;
 
 use render_core::axes::AxesPipeline;
-use render_core::bloom::{self, BloomPipeline, HDR_FORMAT};
+use render_core::bloom::{self, BloomPipeline, DEPTH_FORMAT, HDR_FORMAT};
 use render_core::color;
 use render_core::gpu_types::CameraUniform;
 use render_core::particles::ParticlePipeline;
@@ -9,8 +9,6 @@ use render_core::tonemap::ToneMapPipeline;
 
 use super::ui::UiState;
 use crate::sim_thread::RenderSnapshot;
-
-const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 pub struct Renderer {
     particle_pipeline: ParticlePipeline,
@@ -65,10 +63,10 @@ impl Renderer {
         let hdr_view = hdr_texture.create_view(&Default::default());
         let hdr_composited = bloom::create_hdr_texture(device, width, height);
         let hdr_composited_view = hdr_composited.create_view(&Default::default());
-        let depth_view = create_depth_texture(device, width, height);
+        let depth_view = bloom::create_depth_texture(device, width, height);
 
-        let bloom_pipeline = BloomPipeline::new(device, queue, width, height);
-        let tonemap_pipeline = ToneMapPipeline::new(device, surface_format);
+        let bloom_pipeline = BloomPipeline::new(device, queue, width, height, &hdr_view);
+        let tonemap_pipeline = ToneMapPipeline::new(device, surface_format, &hdr_composited_view);
 
         let egui_ctx = egui::Context::default();
         let egui_state = egui_winit::State::new(
@@ -103,12 +101,14 @@ impl Renderer {
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
-        self.depth_view = create_depth_texture(device, width, height);
+        self.depth_view = bloom::create_depth_texture(device, width, height);
         self.hdr_texture = bloom::create_hdr_texture(device, width, height);
         self.hdr_view = self.hdr_texture.create_view(&Default::default());
         self.hdr_composited = bloom::create_hdr_texture(device, width, height);
         self.hdr_composited_view = self.hdr_composited.create_view(&Default::default());
         self.bloom_pipeline.resize(device, width, height);
+        self.bloom_pipeline.update_source(device, &self.hdr_view);
+        self.tonemap_pipeline.update_source(device, &self.hdr_composited_view);
     }
 
     /// Returns true if egui consumed the event.
@@ -144,7 +144,7 @@ impl Renderer {
             // Compute colors from particle types
             self.cached_colors.clear();
             self.cached_colors.reserve(snap.particle_types.len());
-            for &pt in &snap.particle_types {
+            for &pt in snap.particle_types.iter() {
                 self.cached_colors.push(color::particle_type_to_color(pt));
             }
             self.particle_pipeline.update_instances(
@@ -219,11 +219,10 @@ impl Renderer {
 
         // Pass 2: Bloom (threshold → blur → composite) → hdr_composited
         self.bloom_pipeline
-            .render(device, &mut encoder, &self.hdr_view, &self.hdr_composited_view);
+            .render(&mut encoder, &self.hdr_composited_view);
 
         // Pass 3: Tone map HDR → LDR surface
-        self.tonemap_pipeline
-            .render(device, &mut encoder, &self.hdr_composited_view, target);
+        self.tonemap_pipeline.render(&mut encoder, target);
 
         queue.submit(Some(encoder.finish()));
 
@@ -269,20 +268,3 @@ impl Renderer {
     }
 }
 
-fn create_depth_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("depth texture"),
-        size: wgpu::Extent3d {
-            width: width.max(1),
-            height: height.max(1),
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: DEPTH_FORMAT,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
-    texture.create_view(&wgpu::TextureViewDescriptor::default())
-}

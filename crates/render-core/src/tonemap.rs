@@ -2,32 +2,16 @@
 ///
 /// Uses ACES filmic tone mapping for natural-looking HDR compression.
 
-const TONEMAP_WGSL: &str = r#"
+use crate::bloom::FULLSCREEN_VERT;
+
+const TONEMAP_FRAG: &str = r#"
+@group(0) @binding(0) var t_hdr: texture_2d<f32>;
+@group(0) @binding(1) var s_hdr: sampler;
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
 };
-
-@vertex
-fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
-    var pos = array<vec2<f32>, 3>(
-        vec2<f32>(-1.0, -1.0),
-        vec2<f32>(3.0, -1.0),
-        vec2<f32>(-1.0, 3.0),
-    );
-    var uv = array<vec2<f32>, 3>(
-        vec2<f32>(0.0, 1.0),
-        vec2<f32>(2.0, 1.0),
-        vec2<f32>(0.0, -1.0),
-    );
-    var out: VertexOutput;
-    out.position = vec4<f32>(pos[idx], 0.0, 1.0);
-    out.uv = uv[idx];
-    return out;
-}
-
-@group(0) @binding(0) var t_hdr: texture_2d<f32>;
-@group(0) @binding(1) var s_hdr: sampler;
 
 fn aces_tonemap(x: vec3<f32>) -> vec3<f32> {
     let a = 2.51;
@@ -50,13 +34,19 @@ pub struct ToneMapPipeline {
     pipeline: wgpu::RenderPipeline,
     bgl: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    bg: wgpu::BindGroup,
 }
 
 impl ToneMapPipeline {
-    pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        surface_format: wgpu::TextureFormat,
+        hdr_view: &wgpu::TextureView,
+    ) -> Self {
+        let shader_src = format!("{FULLSCREEN_VERT}\n{TONEMAP_FRAG}");
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("tonemap shader"),
-            source: wgpu::ShaderSource::Wgsl(TONEMAP_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
         });
 
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -123,24 +113,30 @@ impl ToneMapPipeline {
             ..Default::default()
         });
 
+        let bg = Self::create_bg(device, &bgl, &sampler, hdr_view);
+
         Self {
             pipeline,
             bgl,
             sampler,
+            bg,
         }
     }
 
-    /// Tone map from HDR texture to LDR surface.
-    pub fn render(
-        &self,
+    /// Recreate the bind group when the HDR source texture changes (e.g. on resize).
+    pub fn update_source(&mut self, device: &wgpu::Device, hdr_view: &wgpu::TextureView) {
+        self.bg = Self::create_bg(device, &self.bgl, &self.sampler, hdr_view);
+    }
+
+    fn create_bg(
         device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
+        bgl: &wgpu::BindGroupLayout,
+        sampler: &wgpu::Sampler,
         hdr_view: &wgpu::TextureView,
-        surface_view: &wgpu::TextureView,
-    ) {
-        let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("tonemap bg"),
-            layout: &self.bgl,
+            layout: bgl,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -148,11 +144,18 @@ impl ToneMapPipeline {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    resource: wgpu::BindingResource::Sampler(sampler),
                 },
             ],
-        });
+        })
+    }
 
+    /// Tone map from HDR texture to LDR surface.
+    pub fn render(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        surface_view: &wgpu::TextureView,
+    ) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("tonemap pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -168,7 +171,7 @@ impl ToneMapPipeline {
             ..Default::default()
         });
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &bg, &[]);
+        pass.set_bind_group(0, &self.bg, &[]);
         pass.draw(0..3, 0..1);
     }
 }
