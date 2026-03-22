@@ -174,14 +174,16 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
         // Advance simulation: run steps to keep sim_time >= wall_elapsed * speed
         let target_sim_time = wall_start.elapsed().as_secs_f64() * speed_multiplier;
         let mut steps_this_batch = 0u32;
+        let batch_start = Instant::now();
         while sim_time < target_sim_time {
             integrator.step(&mut particles, gravity.as_ref(), dt);
             sim_time += dt;
             step += 1;
             steps_this_batch += 1;
 
-            // Cap steps per batch to stay responsive to commands
-            if steps_this_batch >= 1000 {
+            // Yield after 16ms or 1000 steps to stay responsive to
+            // commands (including Stop/close) and send snapshots.
+            if steps_this_batch >= 1000 || batch_start.elapsed() >= SNAP_INTERVAL {
                 break;
             }
         }
