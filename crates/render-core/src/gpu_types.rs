@@ -1,9 +1,11 @@
 /// Per-instance data for a single particle, packed for GPU.
+/// 32 bytes: position (12) + mass (4) + color (16) — power-of-two aligned.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuParticle {
     pub position: [f32; 3],
     pub mass: f32,
+    pub color: [f32; 4],
 }
 
 /// Camera uniform sent to vertex shaders for view-projection and billboarding.

@@ -20,7 +20,7 @@
 
 # Part IV: Astrophysical Scenarios
 
-- [Galaxy Models & Collisions]()
+- [Galaxy Models & Collisions](ch06_scenarios.md)
 
 # Part V: Gas Dynamics
 

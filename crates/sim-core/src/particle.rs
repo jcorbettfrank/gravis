@@ -1,3 +1,13 @@
+/// Particle type identifiers for multi-component scenarios.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParticleType {
+    Default = 0,
+    DiskStar = 1,
+    BulgeStar = 2,
+    DarkMatter = 3,
+}
+
 /// Structure-of-Arrays particle storage for cache-friendly iteration.
 ///
 /// All simulation quantities are f64 for numerical accuracy in long-run
@@ -29,6 +39,9 @@ pub struct Particles {
 
     // Mass (N-body mass units)
     pub mass: Vec<f64>,
+
+    // Particle type (not used in force calculations, used for rendering color)
+    pub particle_type: Vec<u8>,
 }
 
 impl Particles {
@@ -46,12 +59,29 @@ impl Particles {
             ay: Vec::with_capacity(capacity),
             az: Vec::with_capacity(capacity),
             mass: Vec::with_capacity(capacity),
+            particle_type: Vec::with_capacity(capacity),
         }
     }
 
-    /// Add a single particle. Returns its index.
+    /// Add a single particle with default type. Returns its index.
     #[allow(clippy::too_many_arguments)]
     pub fn add(&mut self, x: f64, y: f64, z: f64, vx: f64, vy: f64, vz: f64, mass: f64) -> usize {
+        self.add_typed(x, y, z, vx, vy, vz, mass, ParticleType::Default as u8)
+    }
+
+    /// Add a single particle with explicit type. Returns its index.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_typed(
+        &mut self,
+        x: f64,
+        y: f64,
+        z: f64,
+        vx: f64,
+        vy: f64,
+        vz: f64,
+        mass: f64,
+        particle_type: u8,
+    ) -> usize {
         let idx = self.count;
         self.x.push(x);
         self.y.push(y);
@@ -63,6 +93,7 @@ impl Particles {
         self.ay.push(0.0);
         self.az.push(0.0);
         self.mass.push(mass);
+        self.particle_type.push(particle_type);
         self.count += 1;
         idx
     }
@@ -78,6 +109,46 @@ impl Particles {
             self.ax[i] = 0.0;
             self.ay[i] = 0.0;
             self.az[i] = 0.0;
+        }
+    }
+
+    /// Shift particles so center of mass is at origin with zero bulk velocity.
+    pub fn shift_to_com_frame(&mut self) {
+        let m_total = self.total_mass();
+        if m_total == 0.0 {
+            return;
+        }
+
+        let mut cx = 0.0;
+        let mut cy = 0.0;
+        let mut cz = 0.0;
+        let mut cvx = 0.0;
+        let mut cvy = 0.0;
+        let mut cvz = 0.0;
+
+        for i in 0..self.count {
+            cx += self.mass[i] * self.x[i];
+            cy += self.mass[i] * self.y[i];
+            cz += self.mass[i] * self.z[i];
+            cvx += self.mass[i] * self.vx[i];
+            cvy += self.mass[i] * self.vy[i];
+            cvz += self.mass[i] * self.vz[i];
+        }
+
+        cx /= m_total;
+        cy /= m_total;
+        cz /= m_total;
+        cvx /= m_total;
+        cvy /= m_total;
+        cvz /= m_total;
+
+        for i in 0..self.count {
+            self.x[i] -= cx;
+            self.y[i] -= cy;
+            self.z[i] -= cz;
+            self.vx[i] -= cvx;
+            self.vy[i] -= cvy;
+            self.vz[i] -= cvz;
         }
     }
 }

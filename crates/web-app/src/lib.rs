@@ -5,16 +5,21 @@ use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
 use render_core::axes::AxesPipeline;
+use render_core::bloom::{self, BloomPipeline, DEPTH_FORMAT, HDR_FORMAT};
 use render_core::camera::OrbitalCamera;
+use render_core::color;
 use render_core::particles::ParticlePipeline;
+use render_core::tonemap::ToneMapPipeline;
 
 use sim_core::barnes_hut::BarnesHut;
 use sim_core::gravity::{BruteForce, GravitySolver};
 use sim_core::integrator::{Integrator, LeapfrogKDK};
 use sim_core::particle::Particles;
+use sim_core::scenario::Scenario;
+use sim_core::scenarios::cold_collapse::ColdCollapse;
+use sim_core::scenarios::galaxy_collision::GalaxyCollision;
 use sim_core::scenarios::plummer_sphere::PlummerSphere;
 use sim_core::scenarios::two_body::TwoBody;
-use sim_core::scenario::Scenario;
 
 // ---------------------------------------------------------------------------
 // Shared application state
@@ -50,6 +55,14 @@ struct AppState {
     // render-core pipelines
     particle_pipeline: ParticlePipeline,
     axes_pipeline: AxesPipeline,
+    bloom_pipeline: BloomPipeline,
+    tonemap_pipeline: ToneMapPipeline,
+    #[allow(dead_code)] // texture must outlive its view
+    hdr_texture: wgpu::Texture,
+    hdr_view: wgpu::TextureView,
+    #[allow(dead_code)] // texture must outlive its view
+    hdr_composited: wgpu::Texture,
+    hdr_composited_view: wgpu::TextureView,
     depth_view: wgpu::TextureView,
     camera: OrbitalCamera,
 
@@ -78,6 +91,11 @@ struct AppState {
 
     // resize
     pending_resize: bool,
+
+    // scratch buffers (reused across frames to avoid per-frame allocation)
+    scratch_positions: Vec<[f32; 3]>,
+    scratch_masses: Vec<f32>,
+    cached_colors: Vec<[f32; 4]>,
 }
 
 #[derive(Default)]
@@ -92,42 +110,51 @@ struct TrackedTouch {
     pos: [f64; 2],
 }
 
-const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-
-fn create_depth_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("depth texture"),
-        size: wgpu::Extent3d {
-            width: width.max(1),
-            height: height.max(1),
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: DEPTH_FORMAT,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
-    texture.create_view(&wgpu::TextureViewDescriptor::default())
-}
 
 fn create_sim(scenario: &str, n: usize, algorithm: &str) -> SimState {
-    let softening = 0.05;
-    let particles: Particles = match scenario {
+    // Web demos use coarser timesteps than native for interactive frame rates.
+    // suggested_dt() is tuned for integration accuracy tests (e.g. 10K steps/orbit),
+    // which is too fine for single-threaded WASM with a 10-step/frame accumulator cap.
+    let (particles, dt, softening) = match scenario {
         "two-body" => {
             let s = TwoBody {
                 eccentricity: 0.5,
                 ..Default::default()
             };
-            s.generate()
+            let p = s.generate();
+            let soft = s.suggested_softening();
+            // 5x coarser than native — still <1% energy drift over ~1000 steps
+            (p, 0.005, soft)
+        }
+        "cold-collapse" => {
+            let s = ColdCollapse {
+                n,
+                ..Default::default()
+            };
+            let p = s.generate();
+            let dt = s.suggested_dt();
+            let soft = s.suggested_softening();
+            (p, dt, soft)
+        }
+        "galaxy-collision" => {
+            let s = GalaxyCollision {
+                n_per_galaxy: n / 2,
+                ..Default::default()
+            };
+            let p = s.generate();
+            let dt = s.suggested_dt();
+            let soft = s.suggested_softening();
+            (p, dt, soft)
         }
         _ => {
             let s = PlummerSphere {
                 n,
                 ..Default::default()
             };
-            s.generate()
+            let p = s.generate();
+            let dt = s.suggested_dt();
+            let soft = s.suggested_softening();
+            (p, dt, soft)
         }
     };
 
@@ -136,11 +163,7 @@ fn create_sim(scenario: &str, n: usize, algorithm: &str) -> SimState {
         _ => Box::new(BarnesHut::new(softening, 0.5)),
     };
 
-    // Larger timestep than native — reduces steps-per-frame by 5x.
-    // Still accurate enough for demo purposes (energy drift < 1% over ~1000 steps).
-    let dt = 0.005;
     let integrator = LeapfrogKDK;
-    // Initialize accelerations for leapfrog
     let mut p = particles;
     gravity.compute_accelerations(&mut p);
 
@@ -223,7 +246,8 @@ pub async fn main() {
     };
     surface.configure(&device, &surface_config);
 
-    let particle_pipeline = ParticlePipeline::new(&device, format, DEPTH_FORMAT);
+    // Particle and axes pipelines target HDR format
+    let particle_pipeline = ParticlePipeline::new(&device, HDR_FORMAT, DEPTH_FORMAT);
 
     let camera_bind_group_layout =
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -240,9 +264,16 @@ pub async fn main() {
             }],
         });
 
-    let axes_pipeline = AxesPipeline::new(&device, format, DEPTH_FORMAT, &camera_bind_group_layout);
-    let depth_view = create_depth_texture(&device, width, height);
+    let axes_pipeline = AxesPipeline::new(&device, HDR_FORMAT, DEPTH_FORMAT, &camera_bind_group_layout);
+    let depth_view = bloom::create_depth_texture(&device, width, height);
     let camera = OrbitalCamera::new(width as f32 / height.max(1) as f32);
+
+    let hdr_texture = bloom::create_hdr_texture(&device, width, height);
+    let hdr_view = hdr_texture.create_view(&Default::default());
+    let hdr_composited = bloom::create_hdr_texture(&device, width, height);
+    let hdr_composited_view = hdr_composited.create_view(&Default::default());
+    let bloom_pipeline = BloomPipeline::new(&device, &queue, width, height, &hdr_view);
+    let tonemap_pipeline = ToneMapPipeline::new(&device, format, &hdr_composited_view);
 
     // Read initial config from DOM
     let scenario_name = read_select_value(&document, "scenario").unwrap_or("plummer".into());
@@ -252,6 +283,13 @@ pub async fn main() {
 
     let sim = create_sim(&scenario_name, particle_count, &algorithm_name);
 
+    // Pre-compute colors and masses (invariant within a run)
+    let n = sim.particles.count;
+    let cached_colors: Vec<[f32; 4]> = sim.particles.particle_type.iter()
+        .map(|&pt| color::particle_type_to_color(pt))
+        .collect();
+    let scratch_masses: Vec<f32> = sim.particles.mass.iter().map(|&m| m as f32).collect();
+
     let state = Rc::new(RefCell::new(AppState {
         device,
         queue,
@@ -260,6 +298,12 @@ pub async fn main() {
         canvas: canvas.clone(),
         particle_pipeline,
         axes_pipeline,
+        bloom_pipeline,
+        tonemap_pipeline,
+        hdr_texture,
+        hdr_view,
+        hdr_composited,
+        hdr_composited_view,
         depth_view,
         camera,
         sim,
@@ -276,6 +320,9 @@ pub async fn main() {
         last_cursor: [0.0; 2],
         touch: TouchState::default(),
         pending_resize: false,
+        scratch_positions: Vec::with_capacity(n),
+        scratch_masses,
+        cached_colors,
     }));
 
     // --- Input event listeners ---
@@ -367,6 +414,15 @@ pub async fn main() {
     request_animation_frame(g.borrow().as_ref().unwrap());
 }
 
+/// Refresh cached colors and masses after a scenario change.
+fn refresh_sim_cache(s: &mut AppState) {
+    s.cached_colors = s.sim.particles.particle_type.iter()
+        .map(|&pt| color::particle_type_to_color(pt))
+        .collect();
+    s.scratch_masses = s.sim.particles.mass.iter().map(|&m| m as f32).collect();
+    s.scratch_positions = Vec::with_capacity(s.sim.particles.count);
+}
+
 fn render_frame(s: &mut AppState) {
     let camera_uniform = s.camera.build_uniform();
 
@@ -377,20 +433,22 @@ fn render_frame(s: &mut AppState) {
         bytemuck::bytes_of(&camera_uniform),
     );
 
-    // Update particle instances
+    // Update particle positions into scratch buffer (reused across frames)
     let n = s.sim.particles.count;
-    let positions: Vec<[f32; 3]> = (0..n)
-        .map(|i| {
-            [
-                s.sim.particles.x[i] as f32,
-                s.sim.particles.y[i] as f32,
-                s.sim.particles.z[i] as f32,
-            ]
-        })
-        .collect();
-    let masses: Vec<f32> = s.sim.particles.mass.iter().map(|&m| m as f32).collect();
-    s.particle_pipeline
-        .update_instances(&s.queue, &s.device, &positions, &masses);
+    s.scratch_positions.clear();
+    for i in 0..n {
+        s.scratch_positions.push([
+            s.sim.particles.x[i] as f32,
+            s.sim.particles.y[i] as f32,
+            s.sim.particles.z[i] as f32,
+        ]);
+    }
+
+    // Masses and colors are invariant within a run — precomputed at sim creation
+    s.particle_pipeline.update_instances(
+        &s.queue, &s.device,
+        &s.scratch_positions, &s.scratch_masses, &s.cached_colors,
+    );
 
     let surface_tex = match s.surface.get_current_texture() {
         Ok(t) => t,
@@ -409,11 +467,12 @@ fn render_frame(s: &mut AppState) {
             label: Some("render encoder"),
         });
 
+    // Pass 1: Render axes + particles to HDR texture
     {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("main pass"),
+            label: Some("HDR scene pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
+                view: &s.hdr_view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -441,6 +500,13 @@ fn render_frame(s: &mut AppState) {
             .draw(&mut pass, s.particle_pipeline.camera_bind_group());
         s.particle_pipeline.draw(&mut pass);
     }
+
+    // Pass 2: Bloom → hdr_composited
+    s.bloom_pipeline
+        .render(&mut encoder, &s.hdr_composited_view);
+
+    // Pass 3: Tone map → LDR surface
+    s.tonemap_pipeline.render(&mut encoder, &view);
 
     s.queue.submit(Some(encoder.finish()));
     surface_tex.present();
@@ -552,7 +618,7 @@ fn handle_resize(s: &mut AppState) {
     s.surface_config.width = w;
     s.surface_config.height = h;
     s.surface.configure(&s.device, &s.surface_config);
-    s.depth_view = create_depth_texture(&s.device, w, h);
+    s.depth_view = bloom::create_depth_texture(&s.device, w, h);
     s.camera.set_aspect_ratio(w as f32 / h.max(1) as f32);
 }
 
@@ -715,6 +781,7 @@ fn setup_control_handlers(document: &web_sys::Document, state: &Rc<RefCell<AppSt
                 if let Some(val) = read_select_value(&doc, "scenario") {
                     st.scenario_name = val;
                     st.sim = create_sim(&st.scenario_name, st.particle_count, &st.algorithm_name);
+                    refresh_sim_cache(&mut st);
                 }
             }
         }) as Box<dyn FnMut(_)>);
@@ -732,6 +799,7 @@ fn setup_control_handlers(document: &web_sys::Document, state: &Rc<RefCell<AppSt
                 if let Some(val) = read_select_value(&doc, "algorithm") {
                     st.algorithm_name = val;
                     st.sim = create_sim(&st.scenario_name, st.particle_count, &st.algorithm_name);
+                    refresh_sim_cache(&mut st);
                 }
             }
         }) as Box<dyn FnMut(_)>);
@@ -749,6 +817,7 @@ fn setup_control_handlers(document: &web_sys::Document, state: &Rc<RefCell<AppSt
                 if let Some(val) = read_range_value(&doc, "particle-count") {
                     st.particle_count = val as usize;
                     st.sim = create_sim(&st.scenario_name, st.particle_count, &st.algorithm_name);
+                    refresh_sim_cache(&mut st);
                 }
             }
         }) as Box<dyn FnMut(_)>);

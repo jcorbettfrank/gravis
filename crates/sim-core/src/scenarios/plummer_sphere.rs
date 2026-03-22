@@ -5,6 +5,58 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 
+/// Sample a single particle from the Plummer distribution function.
+///
+/// Returns `(position, velocity)` as `([f64; 3], [f64; 3])`.
+/// Uses CDF inversion for positions and rejection sampling for velocities
+/// following Aarseth, Henon & Wielen (1974).
+pub fn sample_plummer_particle(
+    rng: &mut ChaCha20Rng,
+    total_mass: f64,
+    scale_radius: f64,
+) -> ([f64; 3], [f64; 3]) {
+    let a = scale_radius;
+
+    // Position: CDF inversion of M(<r)/M = r³/(r²+a²)^(3/2)
+    let x_mass: f64 = rng.random_range(0.001..1.0);
+    let r = a / (x_mass.powf(-2.0 / 3.0) - 1.0).sqrt();
+
+    let cos_theta: f64 = rng.random_range(-1.0..1.0);
+    let sin_theta = (1.0 - cos_theta * cos_theta).sqrt();
+    let phi: f64 = rng.random_range(0.0..2.0 * std::f64::consts::PI);
+
+    let pos = [
+        r * sin_theta * phi.cos(),
+        r * sin_theta * phi.sin(),
+        r * cos_theta,
+    ];
+
+    // Velocity: rejection sampling from DF f(E) ∝ (-E)^(7/2)
+    let v_esc = (2.0 * G * total_mass / (r * r + a * a).sqrt()).sqrt();
+    let q = loop {
+        let q: f64 = rng.random_range(0.0..1.0);
+        let g = q * q * (1.0 - q * q).powf(3.5);
+        let g_max = 0.1;
+        let u: f64 = rng.random();
+        if u < g / g_max {
+            break q;
+        }
+    };
+    let v = q * v_esc;
+
+    let cos_theta_v: f64 = rng.random_range(-1.0..1.0);
+    let sin_theta_v = (1.0 - cos_theta_v * cos_theta_v).sqrt();
+    let phi_v: f64 = rng.random_range(0.0..2.0 * std::f64::consts::PI);
+
+    let vel = [
+        v * sin_theta_v * phi_v.cos(),
+        v * sin_theta_v * phi_v.sin(),
+        v * cos_theta_v,
+    ];
+
+    (pos, vel)
+}
+
 /// Plummer sphere: an analytical model of a self-gravitating stellar system
 /// in virial equilibrium.
 ///
@@ -70,58 +122,12 @@ impl Scenario for PlummerSphere {
         let a = self.scale_radius;
 
         for _ in 0..self.n {
-            // --- Sample position ---
-            // The cumulative mass profile is: M(<r) = M * r³ / (r² + a²)^(3/2)
-            // Setting M(<r)/M = X (uniform random), solving for r:
-            //   r = a / sqrt(X^(-2/3) - 1)
-            let x_mass: f64 = rng.random_range(0.001..1.0); // avoid r=0
-            let r = a / (x_mass.powf(-2.0 / 3.0) - 1.0).sqrt();
-
-            // Uniform direction on sphere
-            let cos_theta: f64 = rng.random_range(-1.0..1.0);
-            let sin_theta = (1.0 - cos_theta * cos_theta).sqrt();
-            let phi: f64 = rng.random_range(0.0..2.0 * std::f64::consts::PI);
-
-            let px = r * sin_theta * phi.cos();
-            let py = r * sin_theta * phi.sin();
-            let pz = r * cos_theta;
-
-            // --- Sample velocity ---
-            // The escape velocity at radius r is:
-            //   v_esc = sqrt(2 * |Φ(r)|) = sqrt(2GM / sqrt(r² + a²))
-            let v_esc = (2.0 * G * self.total_mass / (r * r + a * a).sqrt()).sqrt();
-
-            // Rejection sampling from the distribution function.
-            // The DF f(E) ∝ (-E)^(7/2) for the Plummer model.
-            // We sample q = v/v_esc uniformly in [0, 1) and accept with
-            // probability proportional to q² * (1 - q²)^(7/2).
-            let q = loop {
-                let q: f64 = rng.random_range(0.0..1.0);
-                let g = q * q * (1.0 - q * q).powf(3.5);
-                // Maximum of q²(1-q²)^(7/2) is at q² = 1/5, giving g_max ≈ 0.09177
-                let g_max = 0.1;
-                let u: f64 = rng.random();
-                if u < g / g_max {
-                    break q;
-                }
-            };
-
-            let v = q * v_esc;
-
-            // Uniform direction for velocity
-            let cos_theta_v: f64 = rng.random_range(-1.0..1.0);
-            let sin_theta_v = (1.0 - cos_theta_v * cos_theta_v).sqrt();
-            let phi_v: f64 = rng.random_range(0.0..2.0 * std::f64::consts::PI);
-
-            let vx = v * sin_theta_v * phi_v.cos();
-            let vy = v * sin_theta_v * phi_v.sin();
-            let vz = v * cos_theta_v;
-
-            particles.add(px, py, pz, vx, vy, vz, m_per_particle);
+            let (pos, vel) = sample_plummer_particle(&mut rng, self.total_mass, a);
+            particles.add(pos[0], pos[1], pos[2], vel[0], vel[1], vel[2], m_per_particle);
         }
 
         // Shift to center-of-mass frame to ensure COM = 0, P = 0
-        center_of_mass_frame(&mut particles);
+        particles.shift_to_com_frame();
 
         particles
     }
@@ -146,42 +152,3 @@ impl Scenario for PlummerSphere {
     }
 }
 
-/// Shift particles so center of mass is at origin with zero bulk velocity.
-fn center_of_mass_frame(p: &mut Particles) {
-    let m_total = p.total_mass();
-    if m_total == 0.0 {
-        return;
-    }
-
-    let mut cx = 0.0;
-    let mut cy = 0.0;
-    let mut cz = 0.0;
-    let mut cvx = 0.0;
-    let mut cvy = 0.0;
-    let mut cvz = 0.0;
-
-    for i in 0..p.count {
-        cx += p.mass[i] * p.x[i];
-        cy += p.mass[i] * p.y[i];
-        cz += p.mass[i] * p.z[i];
-        cvx += p.mass[i] * p.vx[i];
-        cvy += p.mass[i] * p.vy[i];
-        cvz += p.mass[i] * p.vz[i];
-    }
-
-    cx /= m_total;
-    cy /= m_total;
-    cz /= m_total;
-    cvx /= m_total;
-    cvy /= m_total;
-    cvz /= m_total;
-
-    for i in 0..p.count {
-        p.x[i] -= cx;
-        p.y[i] -= cy;
-        p.z[i] -= cz;
-        p.vx[i] -= cvx;
-        p.vy[i] -= cvy;
-        p.vz[i] -= cvz;
-    }
-}

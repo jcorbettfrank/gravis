@@ -1,4 +1,5 @@
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -7,6 +8,8 @@ use sim_core::diagnostics;
 use sim_core::gravity::{BruteForce, GravitySolver};
 use sim_core::integrator::{Integrator, LeapfrogKDK};
 use sim_core::scenario::Scenario;
+use sim_core::scenarios::cold_collapse::ColdCollapse;
+use sim_core::scenarios::galaxy_collision::GalaxyCollision;
 use sim_core::scenarios::plummer_sphere::PlummerSphere;
 use sim_core::scenarios::two_body::TwoBody;
 
@@ -16,6 +19,7 @@ use crate::Cli;
 pub struct RenderSnapshot {
     pub positions: Vec<[f32; 3]>,
     pub masses: Vec<f32>,
+    pub particle_types: Arc<Vec<u8>>,
     pub center_of_mass: [f32; 3],
     pub sim_time: f64,
     pub step: u64,
@@ -124,8 +128,32 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
             let soft = cli.softening.unwrap_or_else(|| scenario.suggested_softening());
             (p, dt, soft, scenario.name().to_string())
         }
+        "cold-collapse" => {
+            let n = cli.particles.unwrap_or(5000);
+            let scenario = ColdCollapse {
+                n,
+                seed: cli.seed,
+                ..Default::default()
+            };
+            let p = scenario.generate();
+            let dt = cli.dt.unwrap_or_else(|| scenario.suggested_dt());
+            let soft = cli.softening.unwrap_or_else(|| scenario.suggested_softening());
+            (p, dt, soft, scenario.name().to_string())
+        }
+        "galaxy-collision" => {
+            let n = cli.particles.unwrap_or(10000);
+            let scenario = GalaxyCollision {
+                n_per_galaxy: n / 2,
+                seed: cli.seed,
+                ..Default::default()
+            };
+            let p = scenario.generate();
+            let dt = cli.dt.unwrap_or_else(|| scenario.suggested_dt());
+            let soft = cli.softening.unwrap_or_else(|| scenario.suggested_softening());
+            (p, dt, soft, scenario.name().to_string())
+        }
         other => {
-            eprintln!("Unknown scenario: {other}. Available: plummer, two-body");
+            eprintln!("Unknown scenario: {other}. Available: plummer, two-body, cold-collapse, galaxy-collision");
             return;
         }
     };
@@ -150,9 +178,12 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
     let mut speed_multiplier = cli.speed;
     let mut paused = false;
 
+    // Particle types are invariant — share via Arc to avoid cloning per snapshot
+    let particle_types = Arc::new(particles.particle_type.clone());
+
     // Send initial snapshot with diagnostics
     let initial_diag = diagnostics::compute(&particles, softening, sim_time, step);
-    let _ = tx.send(build_render_snapshot(&particles, &initial_diag));
+    let _ = tx.send(build_render_snapshot(&particles, &initial_diag, &particle_types));
 
     let wall_start = Instant::now();
     let mut last_snap_send = Instant::now();
@@ -211,7 +242,7 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
 
         // Send snapshot at ~60fps
         if last_snap_send.elapsed() >= SNAP_INTERVAL {
-            let snap = build_render_snapshot_with_diag(&particles, &cached_diag, sim_time, step);
+            let snap = build_render_snapshot_with_diag(&particles, &cached_diag, sim_time, step, &particle_types);
             if tx.send(snap).is_err() {
                 return; // Receiver dropped
             }
@@ -223,8 +254,9 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
 fn build_render_snapshot(
     particles: &sim_core::particle::Particles,
     diag: &diagnostics::Diagnostics,
+    particle_types: &Arc<Vec<u8>>,
 ) -> RenderSnapshot {
-    build_render_snapshot_with_diag(particles, diag, diag.time, diag.step)
+    build_render_snapshot_with_diag(particles, diag, diag.time, diag.step, particle_types)
 }
 
 fn build_render_snapshot_with_diag(
@@ -232,6 +264,7 @@ fn build_render_snapshot_with_diag(
     diag: &diagnostics::Diagnostics,
     sim_time: f64,
     step: u64,
+    particle_types: &Arc<Vec<u8>>,
 ) -> RenderSnapshot {
     let n = particles.count;
     let mut positions = Vec::with_capacity(n);
@@ -249,6 +282,7 @@ fn build_render_snapshot_with_diag(
     RenderSnapshot {
         positions,
         masses,
+        particle_types: Arc::clone(particle_types),
         center_of_mass: [
             diag.center_of_mass[0] as f32,
             diag.center_of_mass[1] as f32,

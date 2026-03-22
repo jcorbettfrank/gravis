@@ -17,12 +17,14 @@ struct VertexInput {
     @location(0) offset: vec2<f32>,
     @location(1) position: vec3<f32>,
     @location(2) mass: f32,
+    @location(3) color: vec4<f32>,
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) brightness: f32,
+    @location(2) color: vec4<f32>,
 };
 
 @vertex
@@ -37,6 +39,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);
     out.uv = in.offset + vec2<f32>(0.5, 0.5);
     out.brightness = clamp(pow(max(in.mass * 1000.0, 0.01), 0.5), 0.3, 1.0);
+    out.color = in.color;
     return out;
 }
 
@@ -46,8 +49,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if dist > 1.0 {
         discard;
     }
-    let alpha = 1.0 - smoothstep(0.0, 1.0, dist);
-    let color = vec3<f32>(0.7, 0.85, 1.0) * in.brightness;
+    let alpha = (1.0 - smoothstep(0.0, 1.0, dist)) * in.color.a;
+    let color = in.color.rgb * in.brightness;
     return vec4<f32>(color * alpha, alpha);
 }
 "#;
@@ -139,7 +142,7 @@ impl ParticlePipeline {
                             shader_location: 0,
                         }],
                     },
-                    // Slot 1: per-instance particle data
+                    // Slot 1: per-instance particle data (32 bytes)
                     wgpu::VertexBufferLayout {
                         array_stride: std::mem::size_of::<GpuParticle>() as u64,
                         step_mode: wgpu::VertexStepMode::Instance,
@@ -153,6 +156,11 @@ impl ParticlePipeline {
                                 format: wgpu::VertexFormat::Float32,
                                 offset: 12,
                                 shader_location: 2,
+                            },
+                            wgpu::VertexAttribute {
+                                format: wgpu::VertexFormat::Float32x4,
+                                offset: 16,
+                                shader_location: 3,
                             },
                         ],
                     },
@@ -238,14 +246,15 @@ impl ParticlePipeline {
         &self.camera_bind_group
     }
 
-    /// Update instance data from position and mass slices.
-    /// Both slices must have the same length.
+    /// Update instance data from position, mass, and color slices.
+    /// All slices must have the same length.
     pub fn update_instances(
         &mut self,
         queue: &wgpu::Queue,
         device: &wgpu::Device,
         positions: &[[f32; 3]],
         masses: &[f32],
+        colors: &[[f32; 4]],
     ) {
         let count = positions.len();
 
@@ -263,9 +272,11 @@ impl ParticlePipeline {
         let gpu_particles: Vec<GpuParticle> = positions
             .iter()
             .zip(masses.iter())
-            .map(|(pos, &mass)| GpuParticle {
+            .zip(colors.iter())
+            .map(|((pos, &mass), color)| GpuParticle {
                 position: *pos,
                 mass,
+                color: *color,
             })
             .collect();
 
