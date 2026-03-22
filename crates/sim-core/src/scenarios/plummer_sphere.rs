@@ -121,7 +121,7 @@ impl Scenario for PlummerSphere {
         }
 
         // Shift to center-of-mass frame to ensure COM = 0, P = 0
-        center_of_mass_frame(&mut particles);
+        particles.shift_to_com_frame();
 
         particles
     }
@@ -146,42 +146,3 @@ impl Scenario for PlummerSphere {
     }
 }
 
-/// Shift particles so center of mass is at origin with zero bulk velocity.
-fn center_of_mass_frame(p: &mut Particles) {
-    let m_total = p.total_mass();
-    if m_total == 0.0 {
-        return;
-    }
-
-    let mut cx = 0.0;
-    let mut cy = 0.0;
-    let mut cz = 0.0;
-    let mut cvx = 0.0;
-    let mut cvy = 0.0;
-    let mut cvz = 0.0;
-
-    for i in 0..p.count {
-        cx += p.mass[i] * p.x[i];
-        cy += p.mass[i] * p.y[i];
-        cz += p.mass[i] * p.z[i];
-        cvx += p.mass[i] * p.vx[i];
-        cvy += p.mass[i] * p.vy[i];
-        cvz += p.mass[i] * p.vz[i];
-    }
-
-    cx /= m_total;
-    cy /= m_total;
-    cz /= m_total;
-    cvx /= m_total;
-    cvy /= m_total;
-    cvz /= m_total;
-
-    for i in 0..p.count {
-        p.x[i] -= cx;
-        p.y[i] -= cy;
-        p.z[i] -= cz;
-        p.vx[i] -= cvx;
-        p.vy[i] -= cvy;
-        p.vz[i] -= cvz;
-    }
-}

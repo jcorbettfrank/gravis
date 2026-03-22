@@ -7,6 +7,8 @@ use sim_core::diagnostics;
 use sim_core::gravity::{BruteForce, GravitySolver};
 use sim_core::integrator::{Integrator, LeapfrogKDK};
 use sim_core::scenario::Scenario;
+use sim_core::scenarios::cold_collapse::ColdCollapse;
+use sim_core::scenarios::galaxy_collision::GalaxyCollision;
 use sim_core::scenarios::plummer_sphere::PlummerSphere;
 use sim_core::scenarios::two_body::TwoBody;
 
@@ -16,6 +18,7 @@ use crate::Cli;
 pub struct RenderSnapshot {
     pub positions: Vec<[f32; 3]>,
     pub masses: Vec<f32>,
+    pub particle_types: Vec<u8>,
     pub center_of_mass: [f32; 3],
     pub sim_time: f64,
     pub step: u64,
@@ -124,8 +127,32 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
             let soft = cli.softening.unwrap_or_else(|| scenario.suggested_softening());
             (p, dt, soft, scenario.name().to_string())
         }
+        "cold-collapse" => {
+            let n = cli.particles.unwrap_or(5000);
+            let scenario = ColdCollapse {
+                n,
+                seed: cli.seed,
+                ..Default::default()
+            };
+            let p = scenario.generate();
+            let dt = cli.dt.unwrap_or_else(|| scenario.suggested_dt());
+            let soft = cli.softening.unwrap_or_else(|| scenario.suggested_softening());
+            (p, dt, soft, scenario.name().to_string())
+        }
+        "galaxy-collision" => {
+            let n = cli.particles.unwrap_or(10000);
+            let scenario = GalaxyCollision {
+                n_per_galaxy: n / 2,
+                seed: cli.seed,
+                ..Default::default()
+            };
+            let p = scenario.generate();
+            let dt = cli.dt.unwrap_or_else(|| scenario.suggested_dt());
+            let soft = cli.softening.unwrap_or_else(|| scenario.suggested_softening());
+            (p, dt, soft, scenario.name().to_string())
+        }
         other => {
-            eprintln!("Unknown scenario: {other}. Available: plummer, two-body");
+            eprintln!("Unknown scenario: {other}. Available: plummer, two-body, cold-collapse, galaxy-collision");
             return;
         }
     };
@@ -249,6 +276,7 @@ fn build_render_snapshot_with_diag(
     RenderSnapshot {
         positions,
         masses,
+        particle_types: particles.particle_type.clone(),
         center_of_mass: [
             diag.center_of_mass[0] as f32,
             diag.center_of_mass[1] as f32,

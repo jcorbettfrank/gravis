@@ -2,7 +2,8 @@ use crate::particle::Particles;
 use std::io::{self, Read, Write};
 
 /// Magic bytes to identify snapshot files.
-const MAGIC: &[u8; 8] = b"NBODY001";
+const MAGIC_V1: &[u8; 8] = b"NBODY001";
+const MAGIC_V2: &[u8; 8] = b"NBODY002";
 
 /// A complete simulation state that can be saved and restored.
 #[derive(Debug, Clone)]
@@ -31,14 +32,15 @@ impl Snapshot {
         }
     }
 
-    /// Write snapshot to a binary stream.
+    /// Write snapshot to a binary stream (v2 format with particle types).
     ///
     /// Format: magic (8B) | time (f64) | step (u64) | softening (f64) | dt (f64)
     ///         | count (u64) | x[] | y[] | z[] | vx[] | vy[] | vz[] | mass[]
+    ///         | particle_type[] (count × u8)
     ///
-    /// All arrays are count × f64 (8 bytes each), little-endian.
+    /// All f64 arrays are count × 8 bytes, little-endian.
     pub fn write_to(&self, w: &mut dyn Write) -> io::Result<()> {
-        w.write_all(MAGIC)?;
+        w.write_all(MAGIC_V2)?;
         w.write_all(&self.time.to_le_bytes())?;
         w.write_all(&self.step.to_le_bytes())?;
         w.write_all(&self.softening.to_le_bytes())?;
@@ -51,19 +53,26 @@ impl Snapshot {
                 w.write_all(&val.to_le_bytes())?;
             }
         }
+
+        w.write_all(&p.particle_type)?;
         Ok(())
     }
 
-    /// Read snapshot from a binary stream.
+    /// Read snapshot from a binary stream (supports v1 and v2 formats).
     pub fn read_from(r: &mut dyn Read) -> io::Result<Self> {
         let mut magic = [0u8; 8];
         r.read_exact(&mut magic)?;
-        if &magic != MAGIC {
+
+        let has_particle_types = if &magic == MAGIC_V2 {
+            true
+        } else if &magic == MAGIC_V1 {
+            false
+        } else {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Invalid snapshot magic bytes",
             ));
-        }
+        };
 
         let time = read_f64(r)?;
         let step = read_u64(r)?;
@@ -87,6 +96,14 @@ impl Snapshot {
         particles.ax.resize(count, 0.0);
         particles.ay.resize(count, 0.0);
         particles.az.resize(count, 0.0);
+
+        if has_particle_types {
+            particles.particle_type.resize(count, 0);
+            r.read_exact(&mut particles.particle_type)?;
+        } else {
+            // V1 format: default all particle types to 0
+            particles.particle_type.resize(count, 0);
+        }
 
         Ok(Self {
             time,
