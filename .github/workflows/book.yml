@@ -63,6 +63,7 @@ jobs:
           cp crates/web-app/pkg/web_app.js artifacts/book/demos/pkg/
           cp crates/web-app/pkg/web_app_bg.wasm artifacts/book/demos/pkg/
           cp crates/web-app/static/demos/*.html artifacts/book/demos/
+          cp crates/web-app/static/index.html artifacts/book/demos/full.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3

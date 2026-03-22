@@ -38,7 +38,7 @@
     <!-- Hidden controls with preset values -->
     <select id="scenario" style="display:none"><option value="plummer" selected></option></select>
     <select id="algorithm" style="display:none"><option value="barnes-hut" selected></option></select>
-    <input type="range" id="particle-count" value="5000" style="display:none">
+    <input type="range" id="particle-count" value="1000" style="display:none">
     <input type="range" id="speed" value="1" style="display:none">
     <span id="stat-time" style="display:none"></span>
     <span id="stat-energy" style="display:none"></span>
@@ -50,7 +50,7 @@
         }
     </script>
     <script type="module">
-        import init from '../pkg/web_app.js';
+        import init from './pkg/web_app.js';
         init();
     </script>
 </body>
