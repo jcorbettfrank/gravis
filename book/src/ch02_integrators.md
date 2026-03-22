@@ -267,7 +267,7 @@ The one weakness is the fixed global timestep. Close encounters (two particles p
 A Plummer sphere in virial equilibrium — 1,000 particles held together by their own gravity. The demo preset (< 500 particles) shows total energy, which stays bounded thanks to the symplectic integrator. At higher particle counts, only kinetic energy is displayed (computing the O(N²) potential every frame would stall the browser).
 
 <div class="live-demo">
-  <iframe src="demos/plummer.html" width="100%" height="450" loading="lazy"
+  <iframe src="demos/plummer.html" width="100%" loading="lazy"
           title="Live Plummer sphere demo"></iframe>
   <p class="demo-fallback" style="display:none">
     <img src="images/m2_plummer.png" alt="Plummer sphere">

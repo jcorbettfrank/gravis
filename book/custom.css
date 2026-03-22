@@ -52,6 +52,19 @@
 .live-demo iframe {
     border: none;
     display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+}
+
+.live-demo--full iframe {
+    aspect-ratio: 3 / 2;
+}
+
+@media (max-width: 480px) {
+    .live-demo iframe {
+        aspect-ratio: 4 / 3;
+    }
 }
 
 .live-demo .demo-fallback {

@@ -52,12 +52,32 @@ impl OrbitalCamera {
         }
     }
 
+    // Orbit sensitivity: radians per screen pixel of drag.
+    const ORBIT_SENSITIVITY: f32 = 0.005;
+    // Pitch clamped to ±89° to avoid gimbal lock at the poles.
+    const PITCH_LIMIT: f32 = 1.55;
+    const MIN_DISTANCE: f32 = 0.1;
+    const MAX_DISTANCE: f32 = 100.0;
+
     pub fn set_aspect_ratio(&mut self, aspect: f32) {
         self.aspect_ratio = aspect;
     }
 
     pub fn set_target(&mut self, target: Vec3) {
         self.desired_target = target;
+    }
+
+    /// Apply a screen-space drag delta to the orbital angles.
+    pub fn apply_orbit_delta(&mut self, dx: f32, dy: f32) {
+        self.desired_yaw -= dx * Self::ORBIT_SENSITIVITY;
+        self.desired_pitch += dy * Self::ORBIT_SENSITIVITY;
+        self.desired_pitch = self.desired_pitch.clamp(-Self::PITCH_LIMIT, Self::PITCH_LIMIT);
+    }
+
+    /// Multiply the desired distance by the given factor and clamp.
+    pub fn apply_zoom(&mut self, factor: f32) {
+        self.desired_distance *= factor;
+        self.desired_distance = self.desired_distance.clamp(Self::MIN_DISTANCE, Self::MAX_DISTANCE);
     }
 
     pub fn update(&mut self, dt: f32) {
