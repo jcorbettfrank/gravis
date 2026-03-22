@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - "book/**"
+      - "crates/web-app/**"
+      - "crates/render-core/**"
+      - "crates/sim-core/**"
   workflow_dispatch:
 
 permissions: {}  # deny all at workflow level; grant per job
@@ -23,6 +26,8 @@ jobs:
 
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Cache Cargo tools
         id: cache-tools
@@ -31,7 +36,8 @@ jobs:
           path: |
             ~/.cargo/bin/mdbook
             ~/.cargo/bin/mdbook-katex
-          key: cargo-tools-${{ runner.os }}-mdbook-0.4.47-katex-0.9.4
+            ~/.cargo/bin/wasm-pack
+          key: cargo-tools-${{ runner.os }}-mdbook-0.4.47-katex-0.9.4-wasmpack-0.14.0
 
       - name: Install mdBook
         if: steps.cache-tools.outputs.cache-hit != 'true'
@@ -41,8 +47,22 @@ jobs:
         if: steps.cache-tools.outputs.cache-hit != 'true'
         run: cargo install mdbook-katex --version "0.9.4"
 
+      - name: Install wasm-pack
+        if: steps.cache-tools.outputs.cache-hit != 'true'
+        run: cargo install wasm-pack --version "0.14.0"
+
+      - name: Build WASM web-app
+        run: cd crates/web-app && wasm-pack build --target web --release
+
       - name: Build book
         run: mdbook build book/
+
+      - name: Copy WASM demos into book output
+        run: |
+          mkdir -p artifacts/book/demos/pkg
+          cp crates/web-app/pkg/web_app.js artifacts/book/demos/pkg/
+          cp crates/web-app/pkg/web_app_bg.wasm artifacts/book/demos/pkg/
+          cp crates/web-app/static/demos/*.html artifacts/book/demos/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3

@@ -106,6 +106,19 @@ cargo run -p headless --release -- --scenario plummer -n 100000 --algorithm barn
 cargo run -p native-app --release -- --scenario plummer -n 100000 --algorithm barnes-hut
 ```
 
+## Live Demo
+
+The Barnes-Hut algorithm makes this many particles possible in your browser. This demo runs 5,000 particles with $\theta = 0.5$ — try it with brute-force in the [full interactive demo](../index.html) to feel the difference.
+
+<div class="live-demo">
+  <iframe src="demos/plummer.html" width="100%" height="450" loading="lazy"
+          title="Live Barnes-Hut Plummer sphere demo"></iframe>
+  <p class="demo-fallback" style="display:none">
+    <img src="images/m2_plummer.png" alt="Plummer sphere with Barnes-Hut">
+    <em>Live demo requires a WebGPU-enabled browser (Chrome 113+, Edge 113+, Safari 18+).</em>
+  </p>
+</div>
+
 ## Further Reading
 
 - [Barnes & Hut (1986)](https://ui.adsabs.harvard.edu/abs/1986Natur.324..446B) — the original paper introducing the hierarchical tree algorithm in *Nature*

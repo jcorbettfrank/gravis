@@ -40,3 +40,27 @@
     margin: 16px 0;
     border-radius: 0 4px 4px 0;
 }
+
+/* Live WebGPU demo embeds */
+.live-demo {
+    margin: 16px 0;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.live-demo iframe {
+    border: none;
+    display: block;
+}
+
+.live-demo .demo-fallback {
+    padding: 16px;
+    text-align: center;
+    background: #1a1a2a;
+}
+
+.live-demo .demo-fallback img {
+    max-width: 100%;
+    border-radius: 4px;
+}

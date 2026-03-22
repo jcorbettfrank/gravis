@@ -1,6 +1,6 @@
 use wgpu::util::DeviceExt;
 
-use super::gpu_types::AxesVertex;
+use crate::gpu_types::AxesVertex;
 
 const AXES_WGSL: &str = r#"
 struct CameraUniform {
@@ -137,7 +137,11 @@ impl AxesPipeline {
         }
     }
 
-    pub fn draw<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, camera_bind_group: &'a wgpu::BindGroup) {
+    pub fn draw<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        camera_bind_group: &'a wgpu::BindGroup,
+    ) {
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, camera_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));

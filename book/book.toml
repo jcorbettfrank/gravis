@@ -11,6 +11,7 @@ build-dir = "../artifacts/book"
 [output.html]
 git-repository-url = "https://github.com/jcorbettfrank/gravis"
 additional-css = ["custom.css"]
+additional-js = ["custom.js"]
 
 [output.html.playground]
 editable = false

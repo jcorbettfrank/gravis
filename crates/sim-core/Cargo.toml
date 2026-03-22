@@ -3,10 +3,14 @@ name = "sim-core"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = ["parallel"]
+parallel = ["rayon"]
+
 [dependencies]
 rand = "0.9"
 rand_chacha = "0.9"
-rayon = "1.10"
+rayon = { version = "1.10", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

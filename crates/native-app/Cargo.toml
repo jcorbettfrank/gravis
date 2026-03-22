@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 sim-core = { path = "../sim-core" }
+render-core = { path = "../render-core" }
 clap = { version = "4", features = ["derive"] }
 wgpu = "27"
 winit = "0.30"

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kepler Orbit — gravis</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a0f; overflow: hidden; }
+        #simulation { width: 100vw; height: 100vh; display: block; }
+        .overlay {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            background: rgba(10, 10, 20, 0.8);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font: 11px 'SF Mono', 'Menlo', monospace;
+            color: #808090;
+        }
+        .overlay span { color: #70a0ff; }
+        #no-webgpu {
+            display: none;
+            color: #ff6060;
+            padding: 20px;
+            text-align: center;
+            font-family: sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div id="no-webgpu">WebGPU required (Chrome 113+, Edge 113+, Safari 18+)</div>
+    <canvas id="simulation"></canvas>
+    <div class="overlay">
+        <span id="stat-fps">—</span> fps ·
+        E = <span id="stat-energy">—</span>
+    </div>
+    <!-- Hidden controls with preset values -->
+    <select id="scenario" style="display:none"><option value="two-body" selected></option></select>
+    <select id="algorithm" style="display:none"><option value="brute-force" selected></option></select>
+    <input type="range" id="particle-count" value="2" style="display:none">
+    <input type="range" id="speed" value="1" style="display:none">
+    <span id="stat-particles" style="display:none"></span>
+    <span id="stat-time" style="display:none"></span>
+    <span id="stat-virial" style="display:none"></span>
+    <script>
+        if (!navigator.gpu) {
+            document.getElementById('no-webgpu').style.display = 'block';
+            document.getElementById('simulation').style.display = 'none';
+        }
+    </script>
+    <script type="module">
+        import init from '../pkg/web_app.js';
+        init();
+    </script>
+</body>
+</html>

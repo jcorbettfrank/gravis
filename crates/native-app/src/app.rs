@@ -7,7 +7,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowAttributes, WindowId};
 
-use crate::render::camera::OrbitalCamera;
+use crate::render::camera::NativeCamera;
 use crate::render::renderer::Renderer;
 use crate::render::ui::UiState;
 use crate::sim_thread::{self, SimHandle};
@@ -30,7 +30,7 @@ struct RunningState {
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
     renderer: Renderer,
-    camera: OrbitalCamera,
+    camera: NativeCamera,
     ui: UiState,
     sim: SimHandle,
     last_frame: Instant,
@@ -103,7 +103,7 @@ impl ApplicationHandler for App {
         surface.configure(&device, &surface_config);
 
         let renderer = Renderer::new(&device, &queue, format, size.width, size.height, &window);
-        let camera = OrbitalCamera::new(size.width as f32 / size.height as f32);
+        let camera = NativeCamera::new(size.width as f32 / size.height as f32);
         let ui = UiState::new(self.cli.speed, self.cli.algorithm.clone());
         let sim = sim_thread::spawn(&self.cli);
 
@@ -273,7 +273,7 @@ fn capture_screenshot(
     _surface: &wgpu::Surface,
     config: &wgpu::SurfaceConfiguration,
     renderer: &mut Renderer,
-    camera: &OrbitalCamera,
+    camera: &NativeCamera,
     ui: &mut UiState,
     window: &Window,
     path: &str,

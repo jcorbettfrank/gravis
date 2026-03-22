@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gravis — N-body simulation</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a0f;
+            color: #c0c0d0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 8px 16px;
+            background: #12121a;
+            border-bottom: 1px solid #2a2a3a;
+            flex-wrap: wrap;
+        }
+        .toolbar label {
+            font-size: 12px;
+            color: #808090;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .toolbar select, .toolbar input[type="range"] {
+            background: #1a1a2a;
+            color: #c0c0d0;
+            border: 1px solid #3a3a4a;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 13px;
+        }
+        .toolbar button {
+            background: #2a2a4a;
+            color: #c0c0d0;
+            border: 1px solid #4a4a6a;
+            border-radius: 4px;
+            padding: 4px 12px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .toolbar button:hover { background: #3a3a5a; }
+        .canvas-container {
+            flex: 1;
+            position: relative;
+            min-height: 0;
+        }
+        #simulation {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        .stats {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(10, 10, 20, 0.85);
+            border: 1px solid #2a2a3a;
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 12px;
+            font-family: 'SF Mono', 'Menlo', monospace;
+            line-height: 1.6;
+        }
+        .stats span { color: #70a0ff; }
+        #no-webgpu {
+            display: none;
+            padding: 40px;
+            text-align: center;
+            font-size: 18px;
+            color: #ff6060;
+        }
+        .range-value {
+            min-width: 40px;
+            text-align: right;
+            font-family: 'SF Mono', 'Menlo', monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div id="no-webgpu">
+        <p>WebGPU is not available in this browser.</p>
+        <p style="margin-top: 8px; font-size: 14px; color: #808090;">
+            Try Chrome 113+, Edge 113+, or Safari 18+.
+        </p>
+    </div>
+    <div id="app">
+        <div class="toolbar">
+            <label>
+                Scenario
+                <select id="scenario">
+                    <option value="plummer" selected>Plummer Sphere</option>
+                    <option value="two-body">Two-Body Kepler</option>
+                </select>
+            </label>
+            <label>
+                Algorithm
+                <select id="algorithm">
+                    <option value="barnes-hut" selected>Barnes-Hut</option>
+                    <option value="brute-force">Brute Force</option>
+                </select>
+            </label>
+            <label>
+                Particles
+                <input type="range" id="particle-count" min="100" max="50000" value="5000" step="100">
+                <span class="range-value" id="particle-count-val">5000</span>
+            </label>
+            <label>
+                Speed
+                <input type="range" id="speed" min="1" max="100" value="1">
+                <span class="range-value" id="speed-val">1x</span>
+            </label>
+            <button id="pause-btn">Pause</button>
+        </div>
+        <div class="canvas-container">
+            <canvas id="simulation"></canvas>
+            <div class="stats">
+                FPS: <span id="stat-fps">—</span><br>
+                Particles: <span id="stat-particles">—</span><br>
+                Time: <span id="stat-time">—</span><br>
+                Energy: <span id="stat-energy">—</span><br>
+                Virial: <span id="stat-virial">—</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Update range labels
+        document.getElementById('particle-count').addEventListener('input', function() {
+            document.getElementById('particle-count-val').textContent = this.value;
+        });
+        document.getElementById('speed').addEventListener('input', function() {
+            document.getElementById('speed-val').textContent = this.value + 'x';
+        });
+
+        // WebGPU check
+        if (!navigator.gpu) {
+            document.getElementById('no-webgpu').style.display = 'block';
+            document.getElementById('app').style.display = 'none';
+        }
+    </script>
+    <script type="module">
+        import init from './pkg/web_app.js';
+        init();
+    </script>
+</body>
+</html>
