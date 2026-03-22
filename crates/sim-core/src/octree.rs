@@ -184,6 +184,7 @@ impl Octree {
     }
 
     /// Insert a particle into the subtree rooted at `node_idx`.
+    #[allow(clippy::too_many_arguments)]
     fn insert(&mut self, node_idx: u32, particle_idx: u32, px: f64, py: f64, pz: f64, mass: f64, depth: usize) {
         if self.nodes[node_idx as usize].is_empty() {
             let node = &mut self.nodes[node_idx as usize];
