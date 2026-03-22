@@ -16,7 +16,7 @@
 
 # Part III: Seeing It
 
-- [Rendering Particles]()
+- [Rendering Particles](ch05_rendering.md)
 
 # Part IV: Astrophysical Scenarios
 

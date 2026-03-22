@@ -8,7 +8,9 @@ Gravitational N-body simulation in Rust, targeting Apple M5 Pro.
 - **`docs/adr/`** — architecture decision records
 - **`crates/sim-core/`** — pure simulation library (no rendering, no IO)
 - **`crates/headless/`** — CLI batch runner for benchmarks and snapshot generation
+- **`crates/render-core/`** — platform-independent rendering (pipelines, camera, shaders)
 - **`crates/native-app/`** — real-time macOS renderer + egui HUD
+- **`crates/web-app/`** — browser WASM demo (wasm-pack + web-sys)
 - **`book/`** — mdBook lessons (physics + code walkthroughs)
 - **`artifacts/`** — generated benchmarks, snapshots, plots, media
 
@@ -40,6 +42,12 @@ cargo run -p native-app --release -- --scenario plummer -n 5000 --speed 10.0
 
 # Capture a screenshot without interactive window
 cargo run -p native-app --release -- --scenario plummer -n 5000 --screenshot artifacts/media/plummer.png
+
+# Build WASM web app
+cd crates/web-app && wasm-pack build --target web --release
+
+# Build book with live demos
+bash scripts/build_book.sh
 
 # Build in release mode
 cargo build --release

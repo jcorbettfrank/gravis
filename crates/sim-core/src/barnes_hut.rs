@@ -1,5 +1,6 @@
 use std::sync::Mutex;
 
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 use crate::gravity::GravitySolver;
@@ -155,19 +156,31 @@ impl GravitySolver for BarnesHut {
         let eps2 = self.softening * self.softening;
 
         // Compute accelerations — each particle walks the tree independently.
-        // Use parallel iteration for large N, sequential for small N where
-        // rayon overhead dominates.
-        const PAR_THRESHOLD: usize = 1000;
-        let accels: Vec<[f64; 3]> = if n >= PAR_THRESHOLD {
-            (0..n)
-                .into_par_iter()
-                .map(|i| self.tree_walk_accel(&tree, p.x[i], p.y[i], p.z[i], i as u32, eps2))
-                .collect()
-        } else {
-            (0..n)
-                .map(|i| self.tree_walk_accel(&tree, p.x[i], p.y[i], p.z[i], i as u32, eps2))
-                .collect()
+        #[cfg(feature = "parallel")]
+        let accels: Vec<[f64; 3]> = {
+            // Use parallel iteration for large N, sequential for small N where
+            // rayon overhead dominates.
+            const PAR_THRESHOLD: usize = 1000;
+            if n >= PAR_THRESHOLD {
+                (0..n)
+                    .into_par_iter()
+                    .map(|i| {
+                        self.tree_walk_accel(&tree, p.x[i], p.y[i], p.z[i], i as u32, eps2)
+                    })
+                    .collect()
+            } else {
+                (0..n)
+                    .map(|i| {
+                        self.tree_walk_accel(&tree, p.x[i], p.y[i], p.z[i], i as u32, eps2)
+                    })
+                    .collect()
+            }
         };
+
+        #[cfg(not(feature = "parallel"))]
+        let accels: Vec<[f64; 3]> = (0..n)
+            .map(|i| self.tree_walk_accel(&tree, p.x[i], p.y[i], p.z[i], i as u32, eps2))
+            .collect();
 
         // Accumulate into particle arrays (matching GravitySolver trait contract)
         for i in 0..n {

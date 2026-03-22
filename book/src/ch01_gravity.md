@@ -228,6 +228,19 @@ cargo run -p headless --release -- \
     --diag-csv artifacts/benchmarks/m1_plummer_1k_diag.csv
 ```
 
+## Live Demo
+
+Watch a two-body Kepler orbit evolving in real time — the force law and Plummer softening in action. Drag to orbit the camera, scroll to zoom.
+
+<div class="live-demo">
+  <iframe src="demos/two-body.html" width="100%" height="450" loading="lazy"
+          title="Live two-body Kepler orbit demo"></iframe>
+  <p class="demo-fallback" style="display:none">
+    <img src="images/m2_kepler.png" alt="Two-body Kepler orbit">
+    <em>Live demo requires a WebGPU-enabled browser (Chrome 113+, Edge 113+, Safari 18+).</em>
+  </p>
+</div>
+
 ## Further Reading
 
 - [Newton's law of universal gravitation](https://en.wikipedia.org/wiki/Newton%27s_law_of_universal_gravitation) — the force law and its history

@@ -1,7 +1,6 @@
 use wgpu::util::DeviceExt;
 
-use super::gpu_types::{CameraUniform, GpuParticle, QuadVertex};
-use crate::sim_thread::RenderSnapshot;
+use crate::gpu_types::{CameraUniform, GpuParticle, QuadVertex};
 
 const PARTICLE_WGSL: &str = r#"
 struct CameraUniform {
@@ -75,7 +74,11 @@ pub struct ParticlePipeline {
 }
 
 impl ParticlePipeline {
-    pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat, depth_format: wgpu::TextureFormat) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        surface_format: wgpu::TextureFormat,
+        depth_format: wgpu::TextureFormat,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("particle shader"),
             source: wgpu::ShaderSource::Wgsl(PARTICLE_WGSL.into()),
@@ -88,19 +91,20 @@ impl ParticlePipeline {
             mapped_at_creation: false,
         });
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("camera bind group layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
+        let bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("camera bind group layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
 
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("camera bind group"),
@@ -234,8 +238,16 @@ impl ParticlePipeline {
         &self.camera_bind_group
     }
 
-    pub fn update_instances(&mut self, queue: &wgpu::Queue, snapshot: &RenderSnapshot, device: &wgpu::Device) {
-        let count = snapshot.positions.len();
+    /// Update instance data from position and mass slices.
+    /// Both slices must have the same length.
+    pub fn update_instances(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        positions: &[[f32; 3]],
+        masses: &[f32],
+    ) {
+        let count = positions.len();
 
         // Grow instance buffer if needed
         if count > self.max_particles {
@@ -248,10 +260,9 @@ impl ParticlePipeline {
             });
         }
 
-        let gpu_particles: Vec<GpuParticle> = snapshot
-            .positions
+        let gpu_particles: Vec<GpuParticle> = positions
             .iter()
-            .zip(snapshot.masses.iter())
+            .zip(masses.iter())
             .map(|(pos, &mass)| GpuParticle {
                 position: *pos,
                 mass,

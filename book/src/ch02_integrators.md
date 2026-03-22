@@ -262,6 +262,19 @@ Leapfrog wins for gravitational dynamics: it costs the same as Euler (one force 
 
 The one weakness is the fixed global timestep. Close encounters (two particles passing within a few softening lengths) generate large accelerations that need small $\Delta t$ to resolve, but distant particles could use much larger $\Delta t$. Adaptive individual timesteps address this — a topic for Chapter 7 or beyond.
 
+## Live Demo
+
+A Plummer sphere in virial equilibrium — 1,000 particles held together by their own gravity. Watch the energy readout: it oscillates but never drifts, because the leapfrog integrator is symplectic.
+
+<div class="live-demo">
+  <iframe src="demos/plummer.html" width="100%" height="450" loading="lazy"
+          title="Live Plummer sphere demo"></iframe>
+  <p class="demo-fallback" style="display:none">
+    <img src="images/m2_plummer.png" alt="Plummer sphere">
+    <em>Live demo requires a WebGPU-enabled browser (Chrome 113+, Edge 113+, Safari 18+).</em>
+  </p>
+</div>
+
 ## Further Reading
 
 - [Hamiltonian mechanics](https://en.wikipedia.org/wiki/Hamiltonian_mechanics) — the framework behind symplectic integrators

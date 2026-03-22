@@ -1,8 +1,9 @@
 use winit::window::Window;
 
-use super::axes::AxesPipeline;
-use super::gpu_types::CameraUniform;
-use super::particles::ParticlePipeline;
+use render_core::axes::AxesPipeline;
+use render_core::gpu_types::CameraUniform;
+use render_core::particles::ParticlePipeline;
+
 use super::ui::UiState;
 use crate::sim_thread::RenderSnapshot;
 
@@ -79,7 +80,11 @@ impl Renderer {
     }
 
     /// Returns true if egui consumed the event.
-    pub fn handle_window_event(&mut self, window: &Window, event: &winit::event::WindowEvent) -> bool {
+    pub fn handle_window_event(
+        &mut self,
+        window: &Window,
+        event: &winit::event::WindowEvent,
+    ) -> bool {
         let response = self.egui_state.on_window_event(window, event);
         response.consumed
     }
@@ -104,7 +109,8 @@ impl Renderer {
 
         // Update particle instances if we have new data
         if let Some(snap) = new_snapshot {
-            self.particle_pipeline.update_instances(queue, snap, device);
+            self.particle_pipeline
+                .update_instances(queue, device, &snap.positions, &snap.masses);
         }
 
         // Build egui
@@ -115,7 +121,9 @@ impl Renderer {
         self.egui_state
             .handle_platform_output(window, full_output.platform_output);
 
-        let paint_jobs = self.egui_ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
+        let paint_jobs = self
+            .egui_ctx
+            .tessellate(full_output.shapes, full_output.pixels_per_point);
         let screen_descriptor = egui_wgpu::ScreenDescriptor {
             size_in_pixels: size,
             pixels_per_point: full_output.pixels_per_point,
@@ -173,8 +181,13 @@ impl Renderer {
             label: Some("egui encoder"),
         });
 
-        self.egui_renderer
-            .update_buffers(device, queue, &mut egui_encoder, &paint_jobs, &screen_descriptor);
+        self.egui_renderer.update_buffers(
+            device,
+            queue,
+            &mut egui_encoder,
+            &paint_jobs,
+            &screen_descriptor,
+        );
 
         let mut pass = egui_encoder
             .begin_render_pass(&wgpu::RenderPassDescriptor {
