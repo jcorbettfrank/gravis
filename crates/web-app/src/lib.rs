@@ -436,13 +436,14 @@ fn setup_input_handlers(canvas: &HtmlCanvasElement, state: &Rc<RefCell<AppState>
         cb.forget();
     }
 
-    // Mouse up
+    // Mouse up — listen on document so releasing outside the canvas still clears drag state
     {
         let s = state.clone();
         let cb = Closure::wrap(Box::new(move |_: web_sys::MouseEvent| {
             s.borrow_mut().dragging = false;
         }) as Box<dyn FnMut(_)>);
-        canvas
+        let document = web_sys::window().unwrap().document().unwrap();
+        document
             .add_event_listener_with_callback("mouseup", cb.as_ref().unchecked_ref())
             .unwrap();
         cb.forget();
@@ -595,14 +596,9 @@ fn setup_control_handlers(document: &web_sys::Document, state: &Rc<RefCell<AppSt
 // ---------------------------------------------------------------------------
 
 fn read_select_value(doc: &web_sys::Document, id: &str) -> Option<String> {
-    doc.get_element_by_id(id)?
-        .dyn_ref::<HtmlCanvasElement>()
-        .map(|_| None)
-        .unwrap_or_else(|| {
-            doc.get_element_by_id(id)
-                .and_then(|el| el.dyn_into::<web_sys::HtmlSelectElement>().ok())
-                .map(|sel| sel.value())
-        })
+    doc.get_element_by_id(id)
+        .and_then(|el| el.dyn_into::<web_sys::HtmlSelectElement>().ok())
+        .map(|sel| sel.value())
 }
 
 fn read_range_value(doc: &web_sys::Document, id: &str) -> Option<i32> {
@@ -633,20 +629,37 @@ fn update_stats_dom(s: &AppState) {
         &format!("{:.3}", s.sim.sim_time),
     );
 
-    // Use compute_fast (O(N)) for live display — the O(N²) potential energy
-    // calculation would destroy frame rate at interactive particle counts.
-    let diag =
-        sim_core::diagnostics::compute_fast(&s.sim.particles, s.sim.sim_time, s.sim.step);
-    set_text(
-        &document,
-        "stat-energy",
-        &format!("{:.6}", diag.kinetic_energy),
-    );
-    set_text(
-        &document,
-        "stat-virial",
-        "—",
-    );
+    // For small N, compute full diagnostics (O(N²) potential) to show total energy
+    // and virial ratio — these are the quantities the book discusses. For large N,
+    // fall back to O(N) kinetic-only to avoid killing frame rate.
+    let softening = 0.05;
+    if s.sim.particles.count <= 500 {
+        let diag = sim_core::diagnostics::compute(
+            &s.sim.particles,
+            softening,
+            s.sim.sim_time,
+            s.sim.step,
+        );
+        set_text(
+            &document,
+            "stat-energy",
+            &format!("{:.6}", diag.total_energy),
+        );
+        set_text(
+            &document,
+            "stat-virial",
+            &format!("{:.3}", diag.virial_ratio),
+        );
+    } else {
+        let diag =
+            sim_core::diagnostics::compute_fast(&s.sim.particles, s.sim.sim_time, s.sim.step);
+        set_text(
+            &document,
+            "stat-energy",
+            &format!("K={:.4}", diag.kinetic_energy),
+        );
+        set_text(&document, "stat-virial", "—");
+    }
 
     // Update pause button text
     if let Some(el) = document.get_element_by_id("pause-btn") {

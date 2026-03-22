@@ -221,23 +221,33 @@ The WASM build compiles without rayon and uses sequential force computation. Nat
 
 ### The requestAnimationFrame Loop
 
-Without threads, simulation and rendering share a single `requestAnimationFrame` callback. Each frame computes wall-clock $\Delta t$ via `performance.now()`, runs $\text{steps} = \min\!\left(\lceil \text{speed} \cdot \Delta t / \Delta t_\text{sim}\rceil, 200\right)$ simulation steps, updates the camera, and renders. The cap at 200 prevents the browser from freezing when a backgrounded tab produces a large $\Delta t$.
+Without threads, simulation and rendering share a single `requestAnimationFrame` callback. A naive approach — compute however many steps the elapsed wall-clock time demands — creates a death spiral: a slow frame increases $\Delta t$, which demands more steps, which makes the next frame even slower.
+
+The fix is the [fixed timestep with capped accumulator](https://gafferongames.com/post/fix_your_timestep/) pattern. Real elapsed time accumulates in a bucket, capped at a small multiple of $\Delta t_\text{sim}$ to discard time debt rather than trying to catch up. The bucket is then drained in fixed-size chunks:
 
 ```rust
-let target_advance = speed * dt_s as f64;
-let steps = ((target_advance / sim.dt).ceil() as u32).min(200);
-for _ in 0..steps {
-    sim.integrator
-        .step(&mut sim.particles, sim.gravity.as_ref(), dt);
-    sim.sim_time += dt;
-    sim.step += 1;
+// Accumulate real elapsed time (scaled by speed multiplier)
+accumulator += dt_s as f64 * speed;
+
+// Cap at 10 steps worth — prevents spiral on slow frames or tab-away
+let max_accumulator = dt * 10.0;
+if accumulator > max_accumulator {
+    accumulator = max_accumulator;
+}
+
+// Drain in fixed-size chunks
+while accumulator >= dt {
+    sim.step_once();
+    accumulator -= dt;
 }
 ```
+
+The cap is the key: if the simulation can't keep up with real-time at high $N$, it simply runs slower than wall-clock. The frame rate stays smooth because rendering is cheap — it's the CPU-side physics that's the bottleneck.
 
 <div class="physics-note">
 
 **Single-threaded performance.**
-On WASM, the simulation is CPU-bound much earlier than on native. Without rayon, Barnes-Hut runs sequentially — at $N = 5{,}000$ with $\theta = 0.5$, a single force evaluation takes about 5 ms on WASM versus 2 ms native (single-threaded) versus 0.6 ms native (multi-threaded with rayon on 10 cores). The 200-step cap means each frame computes at most 1 second of wall-clock-equivalent work, keeping the UI responsive. For larger $N$, the user can reduce the speed multiplier to maintain smooth animation.
+On WASM, the simulation is CPU-bound much earlier than on native. Without rayon, Barnes-Hut runs sequentially — at $N = 5{,}000$ with $\theta = 0.5$, a single force evaluation takes about 5 ms on WASM versus 2 ms native (single-threaded) versus 0.6 ms native (multi-threaded with rayon on 10 cores). The 10-step accumulator cap means the simulation gracefully slows down rather than freezing. For larger $N$, the user can reduce the speed multiplier to maintain smoother animation.
 
 </div>
 

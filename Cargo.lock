@@ -2542,7 +2542,6 @@ name = "sim-core"
 version = "0.1.0"
 dependencies = [
  "criterion",
- "getrandom",
  "rand",
  "rand_chacha",
  "rayon",
@@ -3156,6 +3155,7 @@ dependencies = [
  "bytemuck",
  "console_error_panic_hook",
  "console_log",
+ "getrandom",
  "glam",
  "js-sys",
  "log",
