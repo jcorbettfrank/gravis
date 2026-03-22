@@ -2,6 +2,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use sim_core::barnes_hut::BarnesHut;
 use sim_core::diagnostics;
 use sim_core::gravity::{BruteForce, GravitySolver};
 use sim_core::integrator::{Integrator, LeapfrogKDK};
@@ -129,10 +130,16 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
         }
     };
 
-    let gravity: Box<dyn GravitySolver + Send> = Box::new(BruteForce::new(softening));
+    let gravity: Box<dyn GravitySolver + Send> = match cli.algorithm.as_str() {
+        "barnes-hut" => Box::new(BarnesHut::new(softening, cli.theta)),
+        _ => Box::new(BruteForce::new(softening)),
+    };
     let integrator = LeapfrogKDK;
 
-    eprintln!("Sim thread: {scenario_name}, N={}, dt={dt:.6e}, ε={softening:.6e}", particles.count);
+    eprintln!(
+        "Sim thread: {scenario_name}, N={}, algorithm={}, dt={dt:.6e}, ε={softening:.6e}",
+        particles.count, cli.algorithm
+    );
 
     // Initialize accelerations
     particles.clear_accelerations();

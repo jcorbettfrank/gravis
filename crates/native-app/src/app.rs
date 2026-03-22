@@ -104,7 +104,7 @@ impl ApplicationHandler for App {
 
         let renderer = Renderer::new(&device, &queue, format, size.width, size.height, &window);
         let camera = OrbitalCamera::new(size.width as f32 / size.height as f32);
-        let ui = UiState::new(self.cli.speed);
+        let ui = UiState::new(self.cli.speed, self.cli.algorithm.clone());
         let sim = sim_thread::spawn(&self.cli);
 
         let screenshot_frames_remaining = self.cli.screenshot.as_ref().map(|_| 100u32);

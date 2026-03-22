@@ -1,6 +1,8 @@
+pub mod barnes_hut;
 pub mod diagnostics;
 pub mod gravity;
 pub mod integrator;
+pub mod octree;
 pub mod particle;
 pub mod scenario;
 pub mod scenarios;

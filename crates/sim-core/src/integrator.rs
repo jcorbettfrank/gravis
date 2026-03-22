@@ -1,3 +1,5 @@
+use rayon::prelude::*;
+
 use crate::gravity::GravitySolver;
 use crate::particle::Particles;
 
@@ -43,29 +45,54 @@ impl Integrator for LeapfrogKDK {
         let half_dt = 0.5 * dt;
         let n = p.count;
 
-        // Half-kick: v(t + dt/2) = v(t) + a(t) * dt/2
-        for i in 0..n {
-            p.vx[i] += p.ax[i] * half_dt;
-            p.vy[i] += p.ay[i] * half_dt;
-            p.vz[i] += p.az[i] * half_dt;
-        }
+        // The kick/drift loops are memory-bound (simple a*dt additions).
+        // Rayon's per-call dispatch overhead (~20ms) for 6 separate par_iter
+        // calls exceeds the sequential computation time even at large N.
+        // Force computation (the actual bottleneck) is parallelized in the
+        // GravitySolver implementation.
+        const PAR_THRESHOLD: usize = 10_000_000;
 
-        // Drift: x(t + dt) = x(t) + v(t + dt/2) * dt
-        for i in 0..n {
-            p.x[i] += p.vx[i] * dt;
-            p.y[i] += p.vy[i] * dt;
-            p.z[i] += p.vz[i] * dt;
-        }
+        if n >= PAR_THRESHOLD {
+            // Half-kick
+            p.vx.par_iter_mut().zip(&p.ax).for_each(|(v, &a)| *v += a * half_dt);
+            p.vy.par_iter_mut().zip(&p.ay).for_each(|(v, &a)| *v += a * half_dt);
+            p.vz.par_iter_mut().zip(&p.az).for_each(|(v, &a)| *v += a * half_dt);
 
-        // Recompute forces at new positions
-        p.clear_accelerations();
-        gravity.compute_accelerations(p);
+            // Drift
+            p.x.par_iter_mut().zip(&p.vx).for_each(|(x, &v)| *x += v * dt);
+            p.y.par_iter_mut().zip(&p.vy).for_each(|(y, &v)| *y += v * dt);
+            p.z.par_iter_mut().zip(&p.vz).for_each(|(z, &v)| *z += v * dt);
 
-        // Half-kick: v(t + dt) = v(t + dt/2) + a(t + dt) * dt/2
-        for i in 0..n {
-            p.vx[i] += p.ax[i] * half_dt;
-            p.vy[i] += p.ay[i] * half_dt;
-            p.vz[i] += p.az[i] * half_dt;
+            // Recompute forces at new positions
+            p.clear_accelerations();
+            gravity.compute_accelerations(p);
+
+            // Half-kick
+            p.vx.par_iter_mut().zip(&p.ax).for_each(|(v, &a)| *v += a * half_dt);
+            p.vy.par_iter_mut().zip(&p.ay).for_each(|(v, &a)| *v += a * half_dt);
+            p.vz.par_iter_mut().zip(&p.az).for_each(|(v, &a)| *v += a * half_dt);
+        } else {
+            // Sequential path for small N
+            for i in 0..n {
+                p.vx[i] += p.ax[i] * half_dt;
+                p.vy[i] += p.ay[i] * half_dt;
+                p.vz[i] += p.az[i] * half_dt;
+            }
+
+            for i in 0..n {
+                p.x[i] += p.vx[i] * dt;
+                p.y[i] += p.vy[i] * dt;
+                p.z[i] += p.vz[i] * dt;
+            }
+
+            p.clear_accelerations();
+            gravity.compute_accelerations(p);
+
+            for i in 0..n {
+                p.vx[i] += p.ax[i] * half_dt;
+                p.vy[i] += p.ay[i] * half_dt;
+                p.vz[i] += p.az[i] * half_dt;
+            }
         }
     }
 }

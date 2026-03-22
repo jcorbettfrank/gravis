@@ -33,6 +33,25 @@ pub struct Diagnostics {
 /// gravity. For large N with Barnes-Hut, you'd want an approximate
 /// potential, but for verification purposes exact is correct.
 pub fn compute(particles: &Particles, softening: f64, time: f64, step: u64) -> Diagnostics {
+    compute_inner(particles, softening, time, step, true)
+}
+
+/// Compute diagnostics without the O(N²) potential energy calculation.
+///
+/// Returns kinetic energy, momentum, angular momentum, and COM — all O(N).
+/// Potential energy, total energy, and virial ratio are set to 0.
+/// Use this for large N when you don't need energy conservation tracking.
+pub fn compute_fast(particles: &Particles, time: f64, step: u64) -> Diagnostics {
+    compute_inner(particles, 0.0, time, step, false)
+}
+
+fn compute_inner(
+    particles: &Particles,
+    softening: f64,
+    time: f64,
+    step: u64,
+    compute_potential: bool,
+) -> Diagnostics {
     let n = particles.count;
     let eps2 = softening * softening;
     let p = particles;
@@ -46,13 +65,15 @@ pub fn compute(particles: &Particles, softening: f64, time: f64, step: u64) -> D
 
     // Potential energy: U = Σᵢ<ⱼ -G * mᵢ * mⱼ / sqrt(rᵢⱼ² + ε²)
     let mut potential_energy = 0.0;
-    for i in 0..n {
-        for j in (i + 1)..n {
-            let dx = p.x[j] - p.x[i];
-            let dy = p.y[j] - p.y[i];
-            let dz = p.z[j] - p.z[i];
-            let r2 = dx * dx + dy * dy + dz * dz + eps2;
-            potential_energy -= G * p.mass[i] * p.mass[j] / r2.sqrt();
+    if compute_potential {
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let dx = p.x[j] - p.x[i];
+                let dy = p.y[j] - p.y[i];
+                let dz = p.z[j] - p.z[i];
+                let r2 = dx * dx + dy * dy + dz * dz + eps2;
+                potential_energy -= G * p.mass[i] * p.mass[j] / r2.sqrt();
+            }
         }
     }
 

@@ -8,6 +8,8 @@
 
 - [The N-Body Problem](ch01_gravity.md)
 - [Symplectic Integrators](ch02_integrators.md)
+- [The Barnes-Hut Algorithm](ch03_barnes_hut.md)
+- [Parallel N-Body with Rayon](ch04_parallel.md)
 
 ---
 
