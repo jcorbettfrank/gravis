@@ -109,6 +109,7 @@ impl BarnesHut {
 
     /// Add gravitational acceleration from a source (mass at position) onto
     /// the target particle at (px, py, pz).
+    #[allow(clippy::too_many_arguments)]
     #[inline(always)]
     fn add_force(
         px: f64,
@@ -165,13 +166,13 @@ impl GravitySolver for BarnesHut {
                 (0..n)
                     .into_par_iter()
                     .map(|i| {
-                        self.tree_walk_accel(&tree, p.x[i], p.y[i], p.z[i], i as u32, eps2)
+                        self.tree_walk_accel(tree, p.x[i], p.y[i], p.z[i], i as u32, eps2)
                     })
                     .collect()
             } else {
                 (0..n)
                     .map(|i| {
-                        self.tree_walk_accel(&tree, p.x[i], p.y[i], p.z[i], i as u32, eps2)
+                        self.tree_walk_accel(tree, p.x[i], p.y[i], p.z[i], i as u32, eps2)
                     })
                     .collect()
             }
@@ -183,10 +184,10 @@ impl GravitySolver for BarnesHut {
             .collect();
 
         // Accumulate into particle arrays (matching GravitySolver trait contract)
-        for i in 0..n {
-            p.ax[i] += accels[i][0];
-            p.ay[i] += accels[i][1];
-            p.az[i] += accels[i][2];
+        for (i, acc) in accels.iter().enumerate().take(n) {
+            p.ax[i] += acc[0];
+            p.ay[i] += acc[1];
+            p.az[i] += acc[2];
         }
     }
 }

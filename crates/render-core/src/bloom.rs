@@ -1,11 +1,11 @@
-/// Multi-pass bloom post-processing pipeline.
-///
-/// Bloom creates a glow effect around bright pixels:
-/// 1. **Threshold**: extract pixels above a luminance threshold
-/// 2. **Blur H/V**: separable 9-tap Gaussian blur at half resolution
-/// 3. **Composite**: additive blend bloom back onto the scene
-///
-/// All intermediate textures use Rgba16Float at half resolution for performance.
+//! Multi-pass bloom post-processing pipeline.
+//!
+//! Bloom creates a glow effect around bright pixels:
+//! 1. **Threshold**: extract pixels above a luminance threshold
+//! 2. **Blur H/V**: separable 9-tap Gaussian blur at half resolution
+//! 3. **Composite**: additive blend bloom back onto the scene
+//!
+//! All intermediate textures use Rgba16Float at half resolution for performance.
 
 /// Fullscreen triangle vertex shader, shared by bloom and tonemap passes.
 pub const FULLSCREEN_VERT: &str = r#"

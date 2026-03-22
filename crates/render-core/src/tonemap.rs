@@ -1,6 +1,6 @@
-/// Tone mapping pipeline: HDR (Rgba16Float) → LDR (surface format).
-///
-/// Uses ACES filmic tone mapping for natural-looking HDR compression.
+//! Tone mapping pipeline: HDR (Rgba16Float) → LDR (surface format).
+//!
+//! Uses ACES filmic tone mapping for natural-looking HDR compression.
 
 use crate::bloom::FULLSCREEN_VERT;
 
