@@ -65,6 +65,12 @@ impl Snapshot {
     }
 
     /// Read snapshot from a binary stream (supports v1, v2, and v3 formats).
+    ///
+    /// # Important
+    ///
+    /// The returned snapshot has **zeroed accelerations** — they are not stored
+    /// on disk. You **must** call [`Snapshot::initialize()`] with a gravity
+    /// solver before stepping, or the first leapfrog half-kick will be wrong.
     pub fn read_from(r: &mut dyn Read) -> io::Result<Self> {
         let mut magic = [0u8; 8];
         r.read_exact(&mut magic)?;
