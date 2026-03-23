@@ -618,7 +618,17 @@ fn handle_resize(s: &mut AppState) {
     s.surface_config.width = w;
     s.surface_config.height = h;
     s.surface.configure(&s.device, &s.surface_config);
+
+    // Recreate all size-dependent render targets (matches native-app resize)
     s.depth_view = bloom::create_depth_texture(&s.device, w, h);
+    s.hdr_texture = bloom::create_hdr_texture(&s.device, w, h);
+    s.hdr_view = s.hdr_texture.create_view(&Default::default());
+    s.hdr_composited = bloom::create_hdr_texture(&s.device, w, h);
+    s.hdr_composited_view = s.hdr_composited.create_view(&Default::default());
+    s.bloom_pipeline.resize(&s.device, w, h);
+    s.bloom_pipeline.update_source(&s.device, &s.hdr_view);
+    s.tonemap_pipeline.update_source(&s.device, &s.hdr_composited_view);
+
     s.camera.set_aspect_ratio(w as f32 / h.max(1) as f32);
 }
 
