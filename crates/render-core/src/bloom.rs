@@ -46,11 +46,6 @@ struct BloomParams {
 };
 @group(0) @binding(2) var<uniform> params: BloomParams;
 
-struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-};
-
 @fragment
 fn fs_threshold(in: VertexOutput) -> @location(0) vec4<f32> {
     let color = textureSample(t_input, s_input, in.uv);
@@ -70,11 +65,6 @@ struct BlurDirection {
     _pad: vec2<f32>,
 };
 @group(0) @binding(2) var<uniform> blur_dir: BlurDirection;
-
-struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-};
 
 @fragment
 fn fs_blur(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -106,11 +96,6 @@ struct BloomParams {
     _pad1: f32,
 };
 @group(0) @binding(3) var<uniform> params: BloomParams;
-
-struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-};
 
 @fragment
 fn fs_composite(in: VertexOutput) -> @location(0) vec4<f32> {
