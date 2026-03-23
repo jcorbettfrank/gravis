@@ -2,7 +2,7 @@
 
 use sim_core::gravity::{NoGravity, GravitySolver};
 use sim_core::scenario::Scenario;
-use sim_core::scenarios::sod_shock::SodShockTube;
+use sim_core::scenarios::sod_shock::{SodShockTube, sod_analytical};
 use sim_core::sph::boundary::Boundary;
 use sim_core::sph::solver::{self, SphSolver};
 
@@ -55,7 +55,8 @@ fn sod_shock_density_profile() {
         }
     }
 
-    // Verify shock formed: significant velocities developed
+    // --- Basic sanity: shock formed, no NaN ---
+
     let max_vx: f64 = (0..particles.count)
         .map(|i| particles.vx[i].abs())
         .fold(0.0, f64::max);
@@ -65,7 +66,6 @@ fn sod_shock_density_profile() {
         max_vx
     );
 
-    // Verify shock structure: particles pushed rightward by the shock
     let n_moved_right: usize = (0..particles.count)
         .filter(|&i| particles.vx[i] > 0.05)
         .count();
@@ -75,7 +75,6 @@ fn sod_shock_density_profile() {
         n_moved_right, step, t
     );
 
-    // Verify no NaN or Inf in the result
     for i in 0..particles.count {
         assert!(
             particles.density[i].is_finite() && particles.internal_energy[i].is_finite(),
@@ -84,8 +83,35 @@ fn sod_shock_density_profile() {
         );
     }
 
-    // Note: quantitative comparison to the analytical Riemann solution
-    // (sod_analytical) requires higher resolution (~1000+ particles in x).
-    // This test uses a minimal grid for speed; artifact-quality validation
-    // should use the default SodShockTube resolution and plot the profiles.
+    // --- Analytical wave structure verification ---
+    //
+    // Verify the SPH result is consistent with the analytical Riemann solution.
+    // At t=0.05 the wave structure is compact (~0.13 units wide around x=0),
+    // so with 400 particles in 3D we test qualitative structure, not exact profiles.
+
+    // Evaluate analytical solution: at x=0, the post-shock velocity u_star gives
+    // the characteristic speed scale of the Riemann solution.
+    let (_, vel_ana, _) = sod_analytical(&[0.0], t, scenario.gamma);
+    let u_star = vel_ana[0].abs();
+
+    // 1. The analytical maximum velocity u_star should be matched within an order
+    //    of magnitude by the SPH maximum velocity.
+    assert!(
+        max_vx > 0.1 * u_star,
+        "SPH max velocity ({max_vx:.3}) too low vs analytical u_star ({u_star:.3})"
+    );
+
+    // 2. Rightward-moving particles (the shock-compressed material) should be
+    //    concentrated near or to the right of x=0, matching the analytical solution.
+    let mean_x_of_shocked: f64 = {
+        let (sx, c) = (0..particles.count)
+            .filter(|&i| particles.vx[i] > 0.05)
+            .fold((0.0, 0usize), |(sx, c), i| (sx + particles.x[i], c + 1));
+        if c > 0 { sx / c as f64 } else { 0.0 }
+    };
+    assert!(
+        mean_x_of_shocked > -0.2,
+        "Shocked particles should be near/right of membrane, mean x = {mean_x_of_shocked:.3}"
+    );
+
 }

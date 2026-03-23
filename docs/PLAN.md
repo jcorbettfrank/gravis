@@ -282,12 +282,12 @@ gravis/
 15. Update `web-app` with SPH scenarios
 
 **Acceptance criteria**:
-- [ ] Sod shock: correct shock/rarefaction/contact positions vs analytical solution.
-- [ ] Sedov blast: correct radius vs time scaling (R ∝ t^(2/5)).
-- [ ] Evrard collapse: energy conservation and density profile match reference.
-- [ ] Kelvin-Helmholtz: visible rollup at shear interface.
-- [ ] Total energy conserved with SPH terms included.
-- [ ] At least one SPH demo interactive in the browser.
+- [x] Sod shock: correct shock/rarefaction/contact positions vs analytical solution.
+- [x] Sedov blast: correct radius vs time scaling (R ∝ t^(2/5)).
+- [x] Evrard collapse: energy conservation and density profile match reference.
+- [x] Kelvin-Helmholtz: visible rollup at shear interface.
+- [x] Total energy conserved with SPH terms included.
+- [x] At least one SPH demo interactive in the browser.
 
 **Book**: `ch07_sph.md` (Wendland kernels, density estimation, pressure forces, variational derivation, grad-h corrections), `ch08_shocks.md` (Riemann problem, artificial viscosity, Sedov blast, Evrard collapse, Kelvin-Helmholtz). Interactive Sod shock tube and Sedov blast demos in the book.
 

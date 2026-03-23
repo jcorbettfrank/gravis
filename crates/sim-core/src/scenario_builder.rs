@@ -10,6 +10,7 @@ use crate::scenarios::evrard_collapse::EvrardCollapse;
 use crate::scenarios::galaxy_collision::GalaxyCollision;
 use crate::scenarios::kelvin_helmholtz::KelvinHelmholtz;
 use crate::scenarios::plummer_sphere::PlummerSphere;
+use crate::scenarios::protoplanetary::Protoplanetary;
 use crate::scenarios::sedov_blast::SedovBlast;
 use crate::scenarios::sod_shock::SodShockTube;
 use crate::scenarios::two_body::TwoBody;
@@ -51,6 +52,10 @@ pub fn build(
             let n = config.particles.unwrap_or(5000);
             Box::new(ColdCollapse { n, seed: config.seed, ..Default::default() })
         }
+        "cold-collapse-gas" => {
+            let n = config.particles.unwrap_or(5000);
+            Box::new(ColdCollapse { n, sph: true, seed: config.seed, ..Default::default() })
+        }
         "galaxy-collision" => {
             let n = config.particles.unwrap_or(10000);
             Box::new(GalaxyCollision { n_per_galaxy: n / 2, seed: config.seed, ..Default::default() })
@@ -65,10 +70,15 @@ pub fn build(
             Box::new(EvrardCollapse { n_particles: n, seed: config.seed, ..Default::default() })
         }
         "kelvin-helmholtz" | "kh" => Box::new(KelvinHelmholtz::default()),
+        "protoplanetary" => {
+            let n = config.particles.unwrap_or(5000);
+            Box::new(Protoplanetary { n_gas: n, seed: config.seed, ..Default::default() })
+        }
         other => {
             return Err(format!(
                 "Unknown scenario: {other}. Available: plummer, two-body, cold-collapse, \
-                 galaxy-collision, sod-shock, sedov-blast, evrard-collapse, kelvin-helmholtz"
+                 cold-collapse-gas, galaxy-collision, sod-shock, sedov-blast, evrard-collapse, \
+                 kelvin-helmholtz, protoplanetary"
             ));
         }
     };
