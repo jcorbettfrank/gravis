@@ -9,6 +9,15 @@ pub trait GravitySolver {
     fn compute_accelerations(&self, particles: &mut Particles);
 }
 
+/// No-op gravity solver for pure hydrodynamic tests.
+pub struct NoGravity;
+
+impl GravitySolver for NoGravity {
+    fn compute_accelerations(&self, _particles: &mut Particles) {
+        // No gravitational forces
+    }
+}
+
 /// Direct summation O(N²) gravity with Plummer softening.
 ///
 /// The force between particles i and j is:

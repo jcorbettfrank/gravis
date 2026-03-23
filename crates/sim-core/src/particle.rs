@@ -6,6 +6,7 @@ pub enum ParticleType {
     DiskStar = 1,
     BulgeStar = 2,
     DarkMatter = 3,
+    Gas = 4,
 }
 
 /// Structure-of-Arrays particle storage for cache-friendly iteration.
@@ -42,6 +43,24 @@ pub struct Particles {
 
     // Particle type (not used in force calculations, used for rendering color)
     pub particle_type: Vec<u8>,
+
+    // SPH gas properties — carried by all particles, zeroed for non-gas.
+    // This avoids index indirection between gas and global particle arrays.
+
+    /// Density (from SPH kernel summation)
+    pub density: Vec<f64>,
+    /// Pressure (from equation of state)
+    pub pressure: Vec<f64>,
+    /// Specific internal energy (thermal energy per unit mass)
+    pub internal_energy: Vec<f64>,
+    /// Time derivative of internal energy (accumulated each step)
+    pub du_dt: Vec<f64>,
+    /// Smoothing length (adaptive, targets ~58 neighbors)
+    pub smoothing_length: Vec<f64>,
+    /// Sound speed c = sqrt(γP/ρ)
+    pub sound_speed: Vec<f64>,
+    /// Per-particle artificial viscosity parameter (Morris & Monaghan switch)
+    pub alpha_visc: Vec<f64>,
 }
 
 impl Particles {
@@ -60,6 +79,13 @@ impl Particles {
             az: Vec::with_capacity(capacity),
             mass: Vec::with_capacity(capacity),
             particle_type: Vec::with_capacity(capacity),
+            density: Vec::with_capacity(capacity),
+            pressure: Vec::with_capacity(capacity),
+            internal_energy: Vec::with_capacity(capacity),
+            du_dt: Vec::with_capacity(capacity),
+            smoothing_length: Vec::with_capacity(capacity),
+            sound_speed: Vec::with_capacity(capacity),
+            alpha_visc: Vec::with_capacity(capacity),
         }
     }
 
@@ -94,8 +120,48 @@ impl Particles {
         self.az.push(0.0);
         self.mass.push(mass);
         self.particle_type.push(particle_type);
+        self.density.push(0.0);
+        self.pressure.push(0.0);
+        self.internal_energy.push(0.0);
+        self.du_dt.push(0.0);
+        self.smoothing_length.push(0.0);
+        self.sound_speed.push(0.0);
+        self.alpha_visc.push(0.0);
         self.count += 1;
         idx
+    }
+
+    /// Add a gas particle with initial thermal state. Returns its index.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_gas(
+        &mut self,
+        x: f64,
+        y: f64,
+        z: f64,
+        vx: f64,
+        vy: f64,
+        vz: f64,
+        mass: f64,
+        internal_energy: f64,
+        smoothing_length: f64,
+    ) -> usize {
+        let idx = self.add_typed(x, y, z, vx, vy, vz, mass, ParticleType::Gas as u8);
+        self.internal_energy[idx] = internal_energy;
+        self.smoothing_length[idx] = smoothing_length;
+        // Initialize viscosity parameter to moderate value
+        self.alpha_visc[idx] = 1.0;
+        idx
+    }
+
+    /// Check if particle i is a gas particle.
+    #[inline]
+    pub fn is_gas(&self, i: usize) -> bool {
+        self.particle_type[i] == ParticleType::Gas as u8
+    }
+
+    /// Returns true if the system contains any gas particles.
+    pub fn has_gas(&self) -> bool {
+        self.particle_type.contains(&(ParticleType::Gas as u8))
     }
 
     /// Total mass of the system.
@@ -109,6 +175,13 @@ impl Particles {
             self.ax[i] = 0.0;
             self.ay[i] = 0.0;
             self.az[i] = 0.0;
+        }
+    }
+
+    /// Zero SPH rate-of-change fields. Called before SPH force accumulation.
+    pub fn clear_sph_rates(&mut self) {
+        for i in 0..self.count {
+            self.du_dt[i] = 0.0;
         }
     }
 

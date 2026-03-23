@@ -18,6 +18,7 @@ pub struct App {
     state: AppState,
 }
 
+#[allow(clippy::large_enum_variant)]
 enum AppState {
     Uninitialized,
     Running(RunningState),
@@ -267,6 +268,7 @@ impl ApplicationHandler for App {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn capture_screenshot(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -302,7 +304,7 @@ fn capture_screenshot(
     renderer.render(device, queue, &view, &camera_uniform, None, ui, window, [width, height]);
 
     // Copy texture to buffer
-    let bytes_per_row = ((width * 4 + 255) / 256) * 256;
+    let bytes_per_row = (width * 4).div_ceil(256) * 256;
     let buf_size = (bytes_per_row * height) as u64;
     let staging = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("screenshot staging"),

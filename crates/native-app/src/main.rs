@@ -56,11 +56,11 @@ fn main() {
     let cli = Cli::parse();
 
     // Validate
-    if let Some(n) = cli.particles {
-        if n == 0 {
-            eprintln!("Error: --particles must be > 0");
-            std::process::exit(1);
-        }
+    if let Some(n) = cli.particles
+        && n == 0
+    {
+        eprintln!("Error: --particles must be > 0");
+        std::process::exit(1);
     }
     if cli.eccentricity < 0.0 || cli.eccentricity >= 1.0 {
         eprintln!(
@@ -69,17 +69,17 @@ fn main() {
         );
         std::process::exit(1);
     }
-    if let Some(dt) = cli.dt {
-        if dt <= 0.0 {
-            eprintln!("Error: --dt must be positive, got {dt}");
-            std::process::exit(1);
-        }
+    if let Some(dt) = cli.dt
+        && dt <= 0.0
+    {
+        eprintln!("Error: --dt must be positive, got {dt}");
+        std::process::exit(1);
     }
-    if let Some(s) = cli.softening {
-        if s < 0.0 {
-            eprintln!("Error: --softening must be non-negative, got {s}");
-            std::process::exit(1);
-        }
+    if let Some(s) = cli.softening
+        && s < 0.0
+    {
+        eprintln!("Error: --softening must be non-negative, got {s}");
+        std::process::exit(1);
     }
 
     let event_loop = EventLoop::new().expect("Failed to create event loop");

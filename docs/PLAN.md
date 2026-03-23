@@ -203,12 +203,12 @@ gravis/
 
 ---
 
-### M4: Web Target + Rendering Chapter
+### M4: Web Target + Rendering Chapter ✓
 **Goal**: Browser-playable demo with live interactive simulations embedded in the book.
 
 **Why now**: wgpu already targets WebGPU from the same WGSL shaders. `sim-core` has zero platform deps. Barnes-Hut enables 10K–50K particles single-threaded in the browser. This is refactoring + plumbing — not new physics — and it unlocks interactive demos for every future chapter.
 
-**Build**:
+**Built**:
 1. Extract `render-core` crate from `native-app` — particle pipeline, camera math, GPU types, WGSL shaders (everything platform-independent)
 2. Refactor `native-app` to depend on `render-core`, keeping winit event loop + egui HUD + sim thread locally
 3. `web-app` crate: WASM entry point via `wasm-pack`, single-threaded sim loop (no rayon), HTML controls for scenario/algorithm selection
@@ -217,36 +217,37 @@ gravis/
 6. Retroactively add interactive demos to Ch 1–4
 
 **Acceptance criteria**:
-- [ ] 5K particles at 30fps in Chrome/Edge with WebGPU.
-- [ ] 50K particles interactive in browser with Barnes-Hut (single-threaded).
-- [ ] `native-app` still works identically (regression test: same screenshots).
-- [ ] At least one live demo embedded in the mdBook.
-- [ ] Same physics results as native (verified by comparing snapshots at matching seeds/steps).
+- [x] 5K particles at 30fps in Chrome/Edge with WebGPU.
+- [x] 50K particles interactive in browser with Barnes-Hut (single-threaded).
+- [x] `native-app` still works identically (regression test: same screenshots).
+- [x] At least one live demo embedded in the mdBook.
+- [x] Same physics results as native (verified by comparing snapshots at matching seeds/steps).
 
 **Book**: `ch05_rendering.md` — wgpu architecture, instanced billboards, camera math, native-vs-web abstraction, WGSL shader walkthrough. Includes embedded "try it yourself" live demo.
 
 ---
 
-### M5: Showcase Scenario — Galaxy Collision
+### M5: Showcase Scenario — Galaxy Collision ✓
 **Goal**: Visually stunning, physically motivated scenario with interactive web demos.
 
-**Build**:
+**Built**:
 1. `galaxy_collision.rs`: Two Milky Way-type disk galaxies
    - Exponential disk profile (stars) + Plummer bulge
-   - Dark matter halo (NFW or Hernquist profile, collisionless particles)
+   - Dark matter halo (Hernquist profile, collisionless particles)
    - Hyperbolic approach trajectory
    - Galactic units: kpc, 10^10 M_sun, ~10^8 yr
 2. `cold_collapse.rs`: Uniform sphere, zero velocity — simple but dramatic
 3. `bloom.rs` in `render-core`: 3-pass bloom post-processing (threshold → separable Gaussian blur → additive composite)
 4. HDR rendering + tone mapping
 5. Mass-based particle coloring: bulge (yellow-orange), disk (blue-white), dark matter (dim, translucent)
-6. Update `web-app` with galaxy collision scenario and bloom
+6. Updated `web-app` with galaxy collision scenario and bloom
+7. Mobile-responsive touch controls and canvas resize for web demos
 
 **Acceptance criteria**:
-- [ ] Physics: Tidal tails and bridges form. Total energy conserved within 1% over full merger.
-- [ ] Performance: 200K particles (100K per galaxy) at >30fps interactive (native). 20K+ with bloom at 30fps in browser.
-- [ ] Visual: Looks like an astrophysics visualization, not a debug scatter plot.
-- [ ] Artifacts: Bloom-rendered screenshots, energy conservation plot.
+- [x] Physics: Tidal tails and bridges form. Total energy conserved within 1% over full merger.
+- [x] Performance: 200K particles (100K per galaxy) at >30fps interactive (native). 20K+ with bloom at 30fps in browser.
+- [x] Visual: Looks like an astrophysics visualization, not a debug scatter plot.
+- [x] Artifacts: Bloom-rendered screenshots, energy conservation plot.
 
 **Book**: `ch06_scenarios.md` — disk galaxy models, rotation curves, tidal dynamics, dynamical friction, dark matter halos, Jeans instability. Interactive galaxy collision demo embedded in chapter.
 
@@ -255,30 +256,40 @@ gravis/
 ### M6: SPH Gas Dynamics
 **Goal**: Gas particles with pressure, density, and viscosity. This is the project's main technical novelty — astrophysical SPH in Rust does not exist in the open-source ecosystem.
 
+**Approach**: Modern SPH following Price (2012), Springel & Hernquist (2002). Wendland C2 kernel (not cubic spline — avoids pairing instability), grad-h correction terms for energy conservation with adaptive smoothing, Morris & Monaghan viscosity switch, Price (2008) artificial conductivity, CFL adaptive timestepping.
+
 **Build**:
-1. SPH module in `sim-core` (or separate `sph` crate if coupling is loose)
-2. Tree-based neighbor search within smoothing radius h
-3. Density summation: ρᵢ = Σⱼ mⱼ W(|rᵢ-rⱼ|, h), cubic spline kernel
-4. Ideal gas EOS: P = (γ-1)ρu, γ=5/3
-5. SPH acceleration: pressure gradient + Monaghan artificial viscosity
-6. Energy equation: du/dt from PdV work + viscous heating
-7. Adaptive smoothing length (~50 neighbors)
-8. Particle types: star (gravity only) vs gas (gravity + SPH)
-9. Scenarios:
-   - `cold_collapse.rs` updated with gas: uniform gas sphere → fragmentation (not "star formation" — no cooling/sinks)
-   - `protoplanetary.rs`: central star + Keplerian gas disk → spiral structure (not gap formation — no embedded perturber)
-10. Verification: Sod shock tube, Sedov-Taylor blast, Evrard collapse, optionally Kelvin-Helmholtz
-11. Gas rendering: color particles by temperature/density in `render-core`
-12. Update `web-app` with SPH scenarios
+1. SPH module in `sim-core/src/sph/` — kernel, neighbors, density, forces, solver
+2. Wendland C2 kernel with compact support at 2h, ~58 neighbors in 3D
+3. Tree-based neighbor search via octree ball query
+4. Density summation: ρᵢ = Σⱼ mⱼ W(|rᵢ-rⱼ|, hᵢ), with grad-h Ωᵢ correction (S&H 2002)
+5. Ideal gas EOS: P = (γ-1)ρu, γ=5/3
+6. SPH acceleration with grad-h corrected pressure gradient + Monaghan artificial viscosity
+7. Per-particle viscosity switch (Morris & Monaghan 1997) — α decays away from shocks
+8. Artificial thermal conductivity (Price 2008) — resolves contact discontinuities
+9. Energy equation: du/dt from PdV work + viscous heating + conductivity
+10. Adaptive smoothing length: iterative h-ρ relation, ~58 neighbors
+11. CFL adaptive timestep: dt = C_CFL · h / v_sig
+12. Particle types: star (gravity only) vs gas (gravity + SPH)
+13. Scenarios:
+    - Sod shock tube (reflective boundaries)
+    - Sedov-Taylor blast wave
+    - Evrard collapse (self-gravitating gas sphere)
+    - Kelvin-Helmholtz instability (SPH's hardest test)
+    - `cold_collapse.rs` gas variant: uniform gas sphere → fragmentation (not "star formation" — no cooling/sinks)
+    - `protoplanetary.rs`: central star + Keplerian gas disk → spiral structure (not gap formation — no embedded perturber)
+14. Gas rendering: color particles by temperature/density in `render-core`
+15. Update `web-app` with SPH scenarios
 
 **Acceptance criteria**:
 - [ ] Sod shock: correct shock/rarefaction/contact positions vs analytical solution.
 - [ ] Sedov blast: correct radius vs time scaling (R ∝ t^(2/5)).
 - [ ] Evrard collapse: energy conservation and density profile match reference.
+- [ ] Kelvin-Helmholtz: visible rollup at shear interface.
 - [ ] Total energy conserved with SPH terms included.
 - [ ] At least one SPH demo interactive in the browser.
 
-**Book**: `ch07_sph.md` (kernel interpolation, density estimation, pressure forces, variational derivation), `ch08_shocks.md` (Riemann problem, artificial viscosity, Sedov blast, Evrard collapse). Interactive Sod shock tube and Sedov blast demos in the book.
+**Book**: `ch07_sph.md` (Wendland kernels, density estimation, pressure forces, variational derivation, grad-h corrections), `ch08_shocks.md` (Riemann problem, artificial viscosity, Sedov blast, Evrard collapse, Kelvin-Helmholtz). Interactive Sod shock tube and Sedov blast demos in the book.
 
 ---
 
@@ -318,10 +329,10 @@ Part II: Scaling Up
   Ch 4: Parallel Computing               (M3) ✓
 
 Part III: Seeing It
-  Ch 5: Rendering Particles              (M4)
+  Ch 5: Rendering Particles              (M4) ✓
 
 Part IV: Astrophysical Scenarios
-  Ch 6: Galaxy Models & Collisions       (M5)
+  Ch 6: Galaxy Models & Collisions       (M5) ✓
 
 Part V: Gas Dynamics
   Ch 7: Smoothed Particle Hydrodynamics  (M6)
@@ -350,7 +361,7 @@ Appendices
 | Sod shock tube | M6 | 1D SPH vs analytical | Correct discontinuity positions |
 | Sedov blast | M6 | Spherical, R vs t | R ∝ t^(2/5) |
 | Evrard collapse | M6 | Adiabatic sphere | Energy + density match reference |
-| Kelvin-Helmholtz | M6 | Shear instability (optional) | Exposes SPH tension instability |
+| Kelvin-Helmholtz | M6 | Shear instability | Visible rollup at interface; tests mixing |
 
 ---
 

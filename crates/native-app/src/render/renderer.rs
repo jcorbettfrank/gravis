@@ -121,6 +121,7 @@ impl Renderer {
         response.consumed
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         device: &wgpu::Device,
@@ -141,11 +142,16 @@ impl Renderer {
 
         // Update particle instances if we have new data
         if let Some(snap) = new_snapshot {
-            // Compute colors from particle types
+            // Compute colors: gas particles use temperature colormap, others use type color
             self.cached_colors.clear();
             self.cached_colors.reserve(snap.particle_types.len());
-            for &pt in snap.particle_types.iter() {
-                self.cached_colors.push(color::particle_type_to_color(pt));
+            for (idx, &pt) in snap.particle_types.iter().enumerate() {
+                if pt == 4 {
+                    // Gas particle: color by internal energy (temperature proxy)
+                    self.cached_colors.push(color::gas_temperature_color(snap.internal_energies[idx]));
+                } else {
+                    self.cached_colors.push(color::particle_type_to_color(pt));
+                }
             }
             self.particle_pipeline.update_instances(
                 queue,
