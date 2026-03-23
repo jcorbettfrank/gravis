@@ -101,8 +101,8 @@ impl Scenario for Protoplanetary {
             let c_s = hr * v_kep;
             let internal_energy = c_s * c_s / (gamma - 1.0);
 
-            // Smoothing length from local surface density
-            let h_sml = 1.5 * (two_pi * r * r / n_gas_f).sqrt();
+            // Smoothing length from local surface density (Σ ∝ r⁻¹ → area per particle ∝ r² ln_ratio)
+            let h_sml = 1.5 * (two_pi * r * r * ln_ratio / n_gas_f).sqrt();
 
             particles.add_gas(x, y, z, vx, vy, vz, m_gas, internal_energy, h_sml);
         }

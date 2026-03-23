@@ -446,7 +446,7 @@ pub async fn main() {
         let now = perf.now();
         let dt_ms = now - *last_time_loop.borrow();
         *last_time_loop.borrow_mut() = now;
-        let dt_s = (dt_ms / 1000.0) as f32;
+        let dt_s = dt_ms / 1000.0;
 
         {
             let mut s = state_loop.borrow_mut();
@@ -470,7 +470,7 @@ pub async fn main() {
                 let mut dt = s.sim.dt;
 
                 // Accumulate real time (scaled by speed multiplier)
-                s.accumulator += dt_s as f64 * s.speed_multiplier;
+                s.accumulator += dt_s * s.speed_multiplier;
 
                 // Cap at 10 steps worth — prevents spiral on slow frames or tab-away
                 let max_accumulator = dt * 10.0;
@@ -478,9 +478,9 @@ pub async fn main() {
                     s.accumulator = max_accumulator;
                 }
 
-                // Drain in fixed-size chunks.
+                // Drain in fixed-size chunks (hard cap: 10 steps per frame).
                 let mut steps_taken = 0u32;
-                while s.accumulator >= dt {
+                while s.accumulator >= dt && steps_taken < 10 {
                     s.sim.step_once();
                     s.accumulator -= dt;
                     dt = s.sim.dt;
@@ -509,7 +509,7 @@ pub async fn main() {
             let com = diag.center_of_mass;
             s.camera
                 .set_target(glam::Vec3::new(com[0] as f32, com[1] as f32, com[2] as f32));
-            s.camera.update(dt_s);
+            s.camera.update(dt_s as f32);
 
             // Render
             render_frame(&mut s);

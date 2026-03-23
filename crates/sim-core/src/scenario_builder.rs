@@ -94,7 +94,7 @@ pub fn build(
 /// Returns true for SPH scenarios that are purely hydrodynamic (no gravity needed).
 ///
 /// Sod shock, Sedov blast, and Kelvin-Helmholtz are pure hydro tests.
-/// Evrard collapse uses SPH but requires gravity for the collapse.
+/// Evrard collapse, cold-collapse-gas, and protoplanetary use SPH but require gravity.
 pub fn is_pure_hydro(scenario_name: &str) -> bool {
     matches!(scenario_name, "sod-shock" | "sedov-blast" | "kelvin-helmholtz" | "kh")
 }
