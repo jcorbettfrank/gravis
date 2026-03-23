@@ -131,5 +131,5 @@ cargo test -p sim-core --release
 Watch the blast wave expand from a point energy injection. The shock front should be roughly spherical and expand as $R \propto t^{2/5}$.
 
 <div class="demo-container">
-<iframe src="../demos/index.html?scenario=sedov-blast" width="100%" height="500" frameborder="0"></iframe>
+<iframe src="demos/sedov-blast.html" width="100%" height="500" frameborder="0"></iframe>
 </div>

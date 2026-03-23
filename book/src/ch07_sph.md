@@ -216,7 +216,7 @@ The [Sod shock tube](https://en.wikipedia.org/wiki/Sod_shock_tube) is the canoni
 The resulting flow has four distinct features, all with known analytical solutions: an expansion fan propagating left into the high-density gas, a contact discontinuity where the original interface was, a shock front propagating right into the low-density gas, and the undisturbed regions at each end. If the SPH solver handles all four correctly, it's ready for astrophysics.
 
 <div class="demo-container">
-<iframe src="../demos/index.html?scenario=sod-shock" width="100%" height="500" frameborder="0"></iframe>
+<iframe src="demos/sod-shock.html" width="100%" height="500" frameborder="0"></iframe>
 </div>
 
 ## Further Reading
