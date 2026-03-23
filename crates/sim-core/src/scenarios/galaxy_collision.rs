@@ -429,8 +429,8 @@ fn generate_halo(
         let sigma = v_c / 2.0_f64.sqrt();
 
         // Sample 3 independent Gaussian components via Box-Muller
-        let (g1, g2) = box_muller(rng);
-        let (g3, _) = box_muller(rng);
+        let (g1, g2) = super::box_muller(rng);
+        let (g3, _) = super::box_muller(rng);
 
         let vx = sigma * g1;
         let vy = sigma * g2;
@@ -447,12 +447,4 @@ fn generate_halo(
             ParticleType::DarkMatter as u8,
         );
     }
-}
-
-/// Box-Muller transform: generate two independent standard normal samples.
-fn box_muller(rng: &mut ChaCha20Rng) -> (f64, f64) {
-    let u1: f64 = rng.random_range(0.001..1.0);
-    let u2: f64 = rng.random_range(0.0..2.0 * std::f64::consts::PI);
-    let r = (-2.0 * u1.ln()).sqrt();
-    (r * u2.cos(), r * u2.sin())
 }

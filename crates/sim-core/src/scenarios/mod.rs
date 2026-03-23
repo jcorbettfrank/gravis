@@ -3,6 +3,7 @@ pub mod evrard_collapse;
 pub mod galaxy_collision;
 pub mod kelvin_helmholtz;
 pub mod plummer_sphere;
+pub mod protoplanetary;
 pub mod sedov_blast;
 pub mod sod_shock;
 pub mod two_body;
@@ -18,6 +19,14 @@ pub fn sphere_spacing(radius: f64, n_particles: usize) -> (f64, f64, f64) {
     let mean_spacing = (vol / n_particles as f64).cbrt();
     let h = 1.5 * mean_spacing;
     (vol, mean_spacing, h)
+}
+
+/// Box-Muller transform: generate two independent standard normal samples.
+pub fn box_muller(rng: &mut impl Rng) -> (f64, f64) {
+    let u1: f64 = rng.random_range(0.001..1.0);
+    let u2: f64 = rng.random_range(0.0..2.0 * std::f64::consts::PI);
+    let r = (-2.0 * u1.ln()).sqrt();
+    (r * u2.cos(), r * u2.sin())
 }
 
 /// Place `n` gas particles uniformly inside a sphere via rejection sampling.

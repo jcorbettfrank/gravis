@@ -74,8 +74,57 @@ This appendix collects all test problems with their analytical solutions and acc
 |------|---------|-----------|
 | $O(N \log N)$ scaling | `cargo test -p sim-core --release -- barnes_hut_scaling_is_nlogn` | Log-log slope $\in [0.8, 1.8]$ |
 
+## M6 Tests (SPH Gas Dynamics)
+
+### Sod Shock Tube
+
+**Setup**: 3D slab with left state $\rho = 1, P = 1$ and right state $\rho = 0.125, P = 0.1$, separated by a membrane at $x = 0$. Wendland C2 kernel, reflective boundaries. Evolved to $t = 0.05$.
+
+**Analytical**: [Riemann problem](https://en.wikipedia.org/wiki/Riemann_problem) solution producing a left-going rarefaction fan, contact discontinuity, and right-going shock. Our code includes a Newton-Raphson Riemann solver (`sod_analytical`).
+
+| Test | Command | Criterion |
+|------|---------|-----------|
+| Shock formation + structure | `cargo test -p sim-core --release -- sod_shock` | Shock forms, velocities match analytical $u^*$ within order of magnitude, shocked particles near membrane |
+
+### Sedov-Taylor Blast Wave
+
+**Setup**: Uniform gas sphere with concentrated central energy injection. Pure hydrodynamics (no gravity).
+
+**Analytical**: Self-similar [Sedov-Taylor solution](https://en.wikipedia.org/wiki/Blast_wave#The_Taylor%E2%80%93von_Neumann%E2%80%93Sedov_blast_wave): $R(t) = \left(E_0 / \rho_0\right)^{1/5} t^{2/5}$.
+
+| Test | Command | Criterion |
+|------|---------|-----------|
+| Blast radius scaling | `cargo test -p sim-core --release -- sedov_blast` | $R$ within 60% of analytical $R \propto t^{2/5}$ at three times; radius monotonically increases |
+
+### Evrard Collapse
+
+**Setup**: Self-gravitating adiabatic gas sphere ($M = 1$, $R = 1$, $u_0 = 0.05$). Tests gravity + SPH coupling.
+
+**Analytical**: Reference solution from [Evrard (1988)](https://ui.adsabs.harvard.edu/abs/1988MNRAS.235..911E). Sphere collapses, forms hot dense core, bounces.
+
+| Test | Command | Criterion |
+|------|---------|-----------|
+| Energy conservation + collapse | `cargo test -p sim-core --release -- evrard` | $|\Delta E/E| < 5\%$, kinetic energy increases, thermal energy increases |
+
+### Kelvin-Helmholtz Instability
+
+**Setup**: Two shearing gas layers with density contrast $2{:}1$, sinusoidal perturbation seeds the instability. Pure hydrodynamics.
+
+**Analytical**: The [Kelvin-Helmholtz instability](https://en.wikipedia.org/wiki/Kelvin%E2%80%93Helmholtz_instability) grows exponentially at early times. SPH has difficulty with mixing at sharp density contrasts.
+
+| Test | Command | Criterion |
+|------|---------|-----------|
+| Instability growth | `cargo test -p sim-core --release -- kelvin_helmholtz` | $v_y$ variance increases $> 1.5\times$; no NaN; energy stays finite |
+
+### SPH Smoke Tests
+
+| Test | Command | Criterion |
+|------|---------|-----------|
+| Cold collapse (gas) | `cargo test -p sim-core --release -- cold_collapse_gas` | 50 steps, no NaN/Inf |
+| Protoplanetary disk | `cargo test -p sim-core --release -- protoplanetary` | 50 steps, no NaN/Inf, particles bound |
+
 ## Future Tests
 
-Tests added in later milestones will be documented here:
+Tests for stretch goals:
 
-- **M7**: Sod shock tube, Sedov-Taylor blast wave, Evrard collapse, Kelvin-Helmholtz instability
+- **M7**: GPU compute validation, Yoshida integrator accuracy, adaptive individual timesteps

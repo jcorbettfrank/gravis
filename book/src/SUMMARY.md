@@ -24,8 +24,8 @@
 
 # Part V: Gas Dynamics
 
-- [Smoothed Particle Hydrodynamics]()
-- [Shocks & Verification]()
+- [Smoothed Particle Hydrodynamics](ch07_sph.md)
+- [Shocks & Verification](ch08_shocks.md)
 
 ---
 

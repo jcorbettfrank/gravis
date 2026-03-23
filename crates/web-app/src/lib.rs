@@ -16,14 +16,21 @@ use render_core::particles::ParticlePipeline;
 use render_core::tonemap::ToneMapPipeline;
 
 use sim_core::barnes_hut::BarnesHut;
-use sim_core::gravity::{BruteForce, GravitySolver};
+use sim_core::gravity::{BruteForce, GravitySolver, NoGravity};
 use sim_core::integrator::{Integrator, LeapfrogKDK};
 use sim_core::particle::Particles;
 use sim_core::scenario::Scenario;
 use sim_core::scenarios::cold_collapse::ColdCollapse;
+use sim_core::scenarios::evrard_collapse::EvrardCollapse;
 use sim_core::scenarios::galaxy_collision::GalaxyCollision;
+use sim_core::scenarios::kelvin_helmholtz::KelvinHelmholtz;
 use sim_core::scenarios::plummer_sphere::PlummerSphere;
+use sim_core::scenarios::protoplanetary::Protoplanetary;
+use sim_core::scenarios::sedov_blast::SedovBlast;
+use sim_core::scenarios::sod_shock::SodShockTube;
 use sim_core::scenarios::two_body::TwoBody;
+use sim_core::sph::boundary::Boundary;
+use sim_core::sph::solver::{self, SphSolver};
 
 // ---------------------------------------------------------------------------
 // Shared application state
@@ -33,6 +40,8 @@ struct SimState {
     particles: Particles,
     gravity: Box<dyn GravitySolver>,
     integrator: LeapfrogKDK,
+    sph_solver: Option<SphSolver>,
+    boundary: Boundary,
     dt: f64,
     sim_time: f64,
     step: u64,
@@ -40,10 +49,21 @@ struct SimState {
 
 impl SimState {
     fn step_once(&mut self) {
-        let dt = self.dt;
-        self.integrator
-            .step(&mut self.particles, self.gravity.as_ref(), dt);
-        self.sim_time += dt;
+        let step_dt = self.dt;
+        if let Some(sph) = &mut self.sph_solver {
+            let dt_next = solver::step_with_sph(
+                &mut self.particles,
+                self.gravity.as_ref(),
+                sph,
+                step_dt,
+            );
+            self.boundary.apply(&mut self.particles);
+            self.dt = dt_next.min(self.dt * 1.5);
+        } else {
+            self.integrator
+                .step(&mut self.particles, self.gravity.as_ref(), step_dt);
+        }
+        self.sim_time += step_dt;
         self.step += 1;
     }
 }
@@ -115,69 +135,143 @@ struct TrackedTouch {
 }
 
 
+struct SimSetup {
+    particles: Particles,
+    dt: f64,
+    gravity: Box<dyn GravitySolver>,
+    sph_solver: Option<SphSolver>,
+    boundary: Boundary,
+}
+
 fn create_sim(scenario: &str, n: usize, algorithm: &str) -> SimState {
-    // Web demos use coarser timesteps than native for interactive frame rates.
-    // suggested_dt() is tuned for integration accuracy tests (e.g. 10K steps/orbit),
-    // which is too fine for single-threaded WASM with a 10-step/frame accumulator cap.
-    let (particles, dt, softening) = match scenario {
+    let setup = match scenario {
         "two-body" => {
-            let s = TwoBody {
-                eccentricity: 0.5,
-                ..Default::default()
-            };
+            let s = TwoBody { eccentricity: 0.5, ..Default::default() };
             let p = s.generate();
             let soft = s.suggested_softening();
-            // 5x coarser than native — still <1% energy drift over ~1000 steps
-            (p, 0.005, soft)
+            SimSetup {
+                particles: p, dt: 0.005, gravity: make_gravity(algorithm, soft),
+                sph_solver: None, boundary: Boundary::None,
+            }
         }
         "cold-collapse" => {
-            let s = ColdCollapse {
-                n,
-                ..Default::default()
-            };
+            let s = ColdCollapse { n, ..Default::default() };
             let p = s.generate();
-            let dt = s.suggested_dt();
-            let soft = s.suggested_softening();
-            (p, dt, soft)
+            SimSetup {
+                particles: p, dt: s.suggested_dt(), gravity: make_gravity(algorithm, s.suggested_softening()),
+                sph_solver: None, boundary: Boundary::None,
+            }
         }
         "galaxy-collision" => {
-            let s = GalaxyCollision {
-                n_per_galaxy: n / 2,
-                ..Default::default()
-            };
+            let s = GalaxyCollision { n_per_galaxy: n / 2, ..Default::default() };
             let p = s.generate();
-            let dt = s.suggested_dt();
-            let soft = s.suggested_softening();
-            (p, dt, soft)
+            SimSetup {
+                particles: p, dt: s.suggested_dt(), gravity: make_gravity(algorithm, s.suggested_softening()),
+                sph_solver: None, boundary: Boundary::None,
+            }
+        }
+        "sod-shock" => {
+            let s = SodShockTube { nx_left: 40, nyz: 4, ..Default::default() };
+            let yz = s.yz_extent();
+            let x_ext = s.x_extent;
+            let p = s.generate();
+            SimSetup {
+                particles: p, dt: s.suggested_dt(), gravity: Box::new(NoGravity),
+                sph_solver: Some(SphSolver::new()),
+                boundary: Boundary::Reflective {
+                    bounds: [(-x_ext * 2.0, x_ext * 2.0), (0.0, yz), (0.0, yz)],
+                },
+            }
+        }
+        "sedov-blast" => {
+            let s = SedovBlast { n_particles: n.min(2000), ..Default::default() };
+            let p = s.generate();
+            SimSetup {
+                particles: p, dt: s.suggested_dt(), gravity: Box::new(NoGravity),
+                sph_solver: Some(SphSolver::new()),
+                boundary: Boundary::None,
+            }
+        }
+        "evrard-collapse" => {
+            let s = EvrardCollapse { n_particles: n, ..Default::default() };
+            let p = s.generate();
+            SimSetup {
+                particles: p, dt: s.suggested_dt(), gravity: Box::new(BruteForce::new(s.suggested_softening())),
+                sph_solver: Some(SphSolver::new()),
+                boundary: Boundary::None,
+            }
+        }
+        "kelvin-helmholtz" => {
+            let s = KelvinHelmholtz::default();
+            let p = s.generate();
+            SimSetup {
+                particles: p, dt: s.suggested_dt(), gravity: Box::new(NoGravity),
+                sph_solver: Some(SphSolver::new()),
+                boundary: Boundary::None,
+            }
+        }
+        "protoplanetary" => {
+            let s = Protoplanetary { n_gas: n, ..Default::default() };
+            let p = s.generate();
+            SimSetup {
+                particles: p, dt: s.suggested_dt(), gravity: Box::new(BruteForce::new(s.suggested_softening())),
+                sph_solver: Some(SphSolver::new()),
+                boundary: Boundary::None,
+            }
+        }
+        "cold-collapse-gas" => {
+            let s = ColdCollapse { n, sph: true, ..Default::default() };
+            let p = s.generate();
+            SimSetup {
+                particles: p, dt: s.suggested_dt(), gravity: Box::new(BruteForce::new(s.suggested_softening())),
+                sph_solver: Some(SphSolver::new()),
+                boundary: Boundary::None,
+            }
         }
         _ => {
-            let s = PlummerSphere {
-                n,
-                ..Default::default()
-            };
+            let s = PlummerSphere { n, ..Default::default() };
             let p = s.generate();
-            let dt = s.suggested_dt();
-            let soft = s.suggested_softening();
-            (p, dt, soft)
+            SimSetup {
+                particles: p, dt: s.suggested_dt(), gravity: make_gravity(algorithm, s.suggested_softening()),
+                sph_solver: None, boundary: Boundary::None,
+            }
         }
     };
 
-    let gravity: Box<dyn GravitySolver> = match algorithm {
-        "brute-force" => Box::new(BruteForce::new(softening)),
-        _ => Box::new(BarnesHut::new(softening, 0.5)),
-    };
+    let mut p = setup.particles;
+    p.clear_accelerations();
+    setup.gravity.compute_accelerations(&mut p);
 
-    let integrator = LeapfrogKDK;
-    let mut p = particles;
-    gravity.compute_accelerations(&mut p);
+    let mut sph_solver = setup.sph_solver;
+    if let Some(sph) = &mut sph_solver {
+        let _ = sph.compute(&mut p);
+    }
 
     SimState {
         particles: p,
-        gravity,
-        integrator,
-        dt,
+        gravity: setup.gravity,
+        integrator: LeapfrogKDK,
+        sph_solver,
+        boundary: setup.boundary,
+        dt: setup.dt,
         sim_time: 0.0,
         step: 0,
+    }
+}
+
+fn make_gravity(algorithm: &str, softening: f64) -> Box<dyn GravitySolver> {
+    match algorithm {
+        "brute-force" => Box::new(BruteForce::new(softening)),
+        _ => Box::new(BarnesHut::new(softening, 0.5)),
+    }
+}
+
+fn camera_distance_for_scenario(scenario: &str) -> f32 {
+    match scenario {
+        "sod-shock" | "kelvin-helmholtz" => 3.0,
+        "protoplanetary" => 8.0,
+        "galaxy-collision" => 30.0,
+        _ => 5.0,
     }
 }
 
@@ -270,7 +364,7 @@ pub async fn main() {
 
     let axes_pipeline = AxesPipeline::new(&device, HDR_FORMAT, DEPTH_FORMAT, &camera_bind_group_layout);
     let depth_view = bloom::create_depth_texture(&device, width, height);
-    let camera = OrbitalCamera::new(width as f32 / height.max(1) as f32);
+    let mut camera = OrbitalCamera::new(width as f32 / height.max(1) as f32);
 
     let hdr_texture = bloom::create_hdr_texture(&device, width, height);
     let hdr_view = hdr_texture.create_view(&Default::default());
@@ -286,11 +380,12 @@ pub async fn main() {
     let speed = read_range_value(&document, "speed").unwrap_or(1) as f64;
 
     let sim = create_sim(&scenario_name, particle_count, &algorithm_name);
+    camera.desired_distance = camera_distance_for_scenario(&scenario_name);
 
-    // Pre-compute colors and masses (invariant within a run)
+    // Pre-compute colors and masses
     let n = sim.particles.count;
-    let cached_colors: Vec<[f32; 4]> = sim.particles.particle_type.iter()
-        .map(|&pt| color::particle_type_to_color(pt))
+    let cached_colors: Vec<[f32; 4]> = sim.particles.particle_type.iter().enumerate()
+        .map(|(idx, &pt)| color::particle_color(pt, sim.particles.internal_energy[idx] as f32))
         .collect();
     let scratch_masses: Vec<f32> = sim.particles.mass.iter().map(|&m| m as f32).collect();
 
@@ -351,7 +446,7 @@ pub async fn main() {
         let now = perf.now();
         let dt_ms = now - *last_time_loop.borrow();
         *last_time_loop.borrow_mut() = now;
-        let dt_s = (dt_ms / 1000.0) as f32;
+        let dt_s = dt_ms / 1000.0;
 
         {
             let mut s = state_loop.borrow_mut();
@@ -372,10 +467,10 @@ pub async fn main() {
             // rather than trying to catch up (which would make things worse).
             // The sim just runs slower than real-time at high N — visually fine.
             if !s.paused {
-                let dt = s.sim.dt;
+                let mut dt = s.sim.dt;
 
                 // Accumulate real time (scaled by speed multiplier)
-                s.accumulator += dt_s as f64 * s.speed_multiplier;
+                s.accumulator += dt_s * s.speed_multiplier;
 
                 // Cap at 10 steps worth — prevents spiral on slow frames or tab-away
                 let max_accumulator = dt * 10.0;
@@ -383,10 +478,25 @@ pub async fn main() {
                     s.accumulator = max_accumulator;
                 }
 
-                // Drain in fixed-size chunks.
-                while s.accumulator >= dt {
+                // Drain in fixed-size chunks (hard cap: 10 steps per frame).
+                let mut steps_taken = 0u32;
+                while s.accumulator >= dt && steps_taken < 10 {
                     s.sim.step_once();
                     s.accumulator -= dt;
+                    dt = s.sim.dt;
+                    steps_taken += 1;
+                }
+
+                // Update gas particle colors (temperature changes each step)
+                if steps_taken > 0 && s.sim.sph_solver.is_some() {
+                    let n = s.sim.particles.count;
+                    for idx in 0..n {
+                        if s.sim.particles.particle_type[idx] == 4 {
+                            s.cached_colors[idx] = color::particle_color(
+                                4, s.sim.particles.internal_energy[idx] as f32
+                            );
+                        }
+                    }
                 }
             }
 
@@ -399,7 +509,7 @@ pub async fn main() {
             let com = diag.center_of_mass;
             s.camera
                 .set_target(glam::Vec3::new(com[0] as f32, com[1] as f32, com[2] as f32));
-            s.camera.update(dt_s);
+            s.camera.update(dt_s as f32);
 
             // Render
             render_frame(&mut s);
@@ -420,8 +530,8 @@ pub async fn main() {
 
 /// Refresh cached colors and masses after a scenario change.
 fn refresh_sim_cache(s: &mut AppState) {
-    s.cached_colors = s.sim.particles.particle_type.iter()
-        .map(|&pt| color::particle_type_to_color(pt))
+    s.cached_colors = s.sim.particles.particle_type.iter().enumerate()
+        .map(|(idx, &pt)| color::particle_color(pt, s.sim.particles.internal_energy[idx] as f32))
         .collect();
     s.scratch_masses = s.sim.particles.mass.iter().map(|&m| m as f32).collect();
     s.scratch_positions = Vec::with_capacity(s.sim.particles.count);
@@ -795,6 +905,7 @@ fn setup_control_handlers(document: &web_sys::Document, state: &Rc<RefCell<AppSt
                 if let Some(val) = read_select_value(&doc, "scenario") {
                     st.scenario_name = val;
                     st.sim = create_sim(&st.scenario_name, st.particle_count, &st.algorithm_name);
+                    st.camera.desired_distance = camera_distance_for_scenario(&st.scenario_name);
                     refresh_sim_cache(&mut st);
                 }
             }

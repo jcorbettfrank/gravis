@@ -17,6 +17,16 @@ pub fn particle_type_to_color(particle_type: u8) -> [f32; 4] {
     }
 }
 
+/// Map a particle to its RGBA color, dispatching gas particles to temperature
+/// coloring and all others to the static type-based palette.
+pub fn particle_color(particle_type: u8, internal_energy: f32) -> [f32; 4] {
+    if particle_type == 4 {
+        gas_temperature_color(internal_energy)
+    } else {
+        particle_type_to_color(particle_type)
+    }
+}
+
 /// Map gas internal energy to an RGBA color using a temperature colormap.
 ///
 /// Uses log(u) as a temperature proxy:
