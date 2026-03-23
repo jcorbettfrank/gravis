@@ -21,6 +21,14 @@ pub fn sphere_spacing(radius: f64, n_particles: usize) -> (f64, f64, f64) {
     (vol, mean_spacing, h)
 }
 
+/// Box-Muller transform: generate two independent standard normal samples.
+pub fn box_muller(rng: &mut impl Rng) -> (f64, f64) {
+    let u1: f64 = rng.random_range(0.001..1.0);
+    let u2: f64 = rng.random_range(0.0..2.0 * std::f64::consts::PI);
+    let r = (-2.0 * u1.ln()).sqrt();
+    (r * u2.cos(), r * u2.sin())
+}
+
 /// Place `n` gas particles uniformly inside a sphere via rejection sampling.
 pub fn fill_uniform_gas_sphere(
     particles: &mut Particles,

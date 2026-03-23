@@ -13,7 +13,7 @@
 use crate::particle::{ParticleType, Particles};
 use crate::scenario::Scenario;
 use crate::units::G;
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 
 /// Protoplanetary disk initial conditions.
@@ -67,43 +67,42 @@ impl Scenario for Protoplanetary {
         // Gas disk particles
         // Surface density Σ ∝ r^{-1} → CDF inversion: r = r_in * (r_out/r_in)^U
         let ln_ratio = (self.r_out / self.r_in).ln();
+        let gm = G * self.m_star;
+        let hr = self.aspect_ratio;
+        let gamma = 5.0 / 3.0;
+        // Pressure correction: v_φ = v_kep * sqrt(1 + (h/r)² · d ln P/d ln r)
+        // For Σ ∝ r^{-1}, T ∝ r^{-1}: d ln P / d ln r ≈ -3
+        let pressure_correction = (1.0 - 3.0 * hr * hr).max(0.0).sqrt();
+        let two_pi = 2.0 * std::f64::consts::PI;
+        let n_gas_f = self.n_gas as f64;
 
         for _ in 0..self.n_gas {
-            // Radial sampling from Σ ∝ r^{-1}
-            let u: f64 = rand::Rng::random::<f64>(&mut rng);
+            let u: f64 = rng.random::<f64>();
             let r = self.r_in * (u * ln_ratio).exp();
 
-            // Azimuthal angle: uniform
-            let phi: f64 = rand::Rng::random::<f64>(&mut rng) * 2.0 * std::f64::consts::PI;
+            let phi: f64 = rng.random::<f64>() * two_pi;
 
             // Vertical structure: flared disk, z ~ h(r) * gaussian
-            // h(r) = aspect_ratio * r (constant h/r for simplicity)
-            let h_r = self.aspect_ratio * r;
-            let z = h_r * rand_normal(&mut rng);
+            let h_r = hr * r;
+            let z = h_r * super::box_muller(&mut rng).0;
 
             let x = r * phi.cos();
             let y = r * phi.sin();
 
-            // Keplerian velocity with sub-Keplerian pressure support correction
-            let v_kep = (G * self.m_star / r).sqrt();
-            // For Σ ∝ r^{-1}, T ∝ r^{-1}: d ln P / d ln r ≈ -3
-            // v_φ = v_kep * sqrt(1 + (h/r)² * d ln P / d ln r)
-            let hr = self.aspect_ratio;
-            let v_phi = v_kep * (1.0 + hr * hr * (-3.0)).sqrt().max(0.5);
+            // Sub-Keplerian velocity with pressure support correction
+            let v_kep = (gm / r).sqrt();
+            let v_phi = v_kep * pressure_correction;
 
             let vx = -v_phi * phi.sin();
             let vy = v_phi * phi.cos();
             let vz = 0.0;
 
             // Internal energy: u = c_s² / (γ-1), with c_s = aspect_ratio * v_kep
-            let gamma = 5.0 / 3.0;
-            let c_s = self.aspect_ratio * v_kep;
+            let c_s = hr * v_kep;
             let internal_energy = c_s * c_s / (gamma - 1.0);
 
             // Smoothing length from local surface density
-            // At radius r with Σ ∝ r^{-1}, local particle spacing ~ sqrt(2πr * Δr / N_local)
-            // Approximate: h ~ 1.5 * (2π r² / n_gas)^{1/2} * (scale_height factor)
-            let h_sml = 1.5 * (2.0 * std::f64::consts::PI * r * r / self.n_gas as f64).sqrt();
+            let h_sml = 1.5 * (two_pi * r * r / n_gas_f).sqrt();
 
             particles.add_gas(x, y, z, vx, vy, vz, m_gas, internal_energy, h_sml);
         }
@@ -123,11 +122,4 @@ impl Scenario for Protoplanetary {
         // Softening ~ fraction of inner radius
         self.r_in * 0.2
     }
-}
-
-/// Box-Muller transform for a standard normal variate.
-fn rand_normal(rng: &mut impl rand::Rng) -> f64 {
-    let u1: f64 = rng.random::<f64>();
-    let u2: f64 = rng.random::<f64>();
-    (-2.0 * u1.max(1e-30).ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
 }

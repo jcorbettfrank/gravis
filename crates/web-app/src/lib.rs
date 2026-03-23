@@ -385,13 +385,7 @@ pub async fn main() {
     // Pre-compute colors and masses
     let n = sim.particles.count;
     let cached_colors: Vec<[f32; 4]> = sim.particles.particle_type.iter().enumerate()
-        .map(|(idx, &pt)| {
-            if pt == 4 {
-                color::gas_temperature_color(sim.particles.internal_energy[idx] as f32)
-            } else {
-                color::particle_type_to_color(pt)
-            }
-        })
+        .map(|(idx, &pt)| color::particle_color(pt, sim.particles.internal_energy[idx] as f32))
         .collect();
     let scratch_masses: Vec<f32> = sim.particles.mass.iter().map(|&m| m as f32).collect();
 
@@ -485,20 +479,21 @@ pub async fn main() {
                 }
 
                 // Drain in fixed-size chunks.
+                let mut steps_taken = 0u32;
                 while s.accumulator >= dt {
                     s.sim.step_once();
                     s.accumulator -= dt;
-                    // dt may change due to CFL in SPH scenarios
                     dt = s.sim.dt;
+                    steps_taken += 1;
                 }
 
                 // Update gas particle colors (temperature changes each step)
-                if s.sim.sph_solver.is_some() {
+                if steps_taken > 0 && s.sim.sph_solver.is_some() {
                     let n = s.sim.particles.count;
                     for idx in 0..n {
                         if s.sim.particles.particle_type[idx] == 4 {
-                            s.cached_colors[idx] = color::gas_temperature_color(
-                                s.sim.particles.internal_energy[idx] as f32
+                            s.cached_colors[idx] = color::particle_color(
+                                4, s.sim.particles.internal_energy[idx] as f32
                             );
                         }
                     }
@@ -536,13 +531,7 @@ pub async fn main() {
 /// Refresh cached colors and masses after a scenario change.
 fn refresh_sim_cache(s: &mut AppState) {
     s.cached_colors = s.sim.particles.particle_type.iter().enumerate()
-        .map(|(idx, &pt)| {
-            if pt == 4 {
-                color::gas_temperature_color(s.sim.particles.internal_energy[idx] as f32)
-            } else {
-                color::particle_type_to_color(pt)
-            }
-        })
+        .map(|(idx, &pt)| color::particle_color(pt, s.sim.particles.internal_energy[idx] as f32))
         .collect();
     s.scratch_masses = s.sim.particles.mass.iter().map(|&m| m as f32).collect();
     s.scratch_positions = Vec::with_capacity(s.sim.particles.count);
