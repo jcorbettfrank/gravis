@@ -189,6 +189,7 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
         let mut steps_this_batch = 0u32;
         let batch_start = Instant::now();
         while sim_time < target_sim_time {
+            let step_dt = current_dt;
             if let Some(sph) = &mut sph_solver {
                 let dt_next = sim_core::sph::solver::step_with_sph(
                     &mut particles, gravity.as_ref(), sph, current_dt,
@@ -197,7 +198,7 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
             } else {
                 integrator.step(&mut particles, gravity.as_ref(), current_dt);
             }
-            sim_time += current_dt;
+            sim_time += step_dt;
             step += 1;
             steps_this_batch += 1;
 

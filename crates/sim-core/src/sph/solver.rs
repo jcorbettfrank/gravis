@@ -80,7 +80,8 @@ impl SphSolver {
     ///   - CFL: C_CFL · h_i / v_sig,i
     ///   - Force: C_force · sqrt(h_i / |a_i|)
     ///
-    /// For gravity-only particles, only the force criterion applies.
+    /// Non-gas particles are skipped — their timestep is constrained by the
+    /// scenario's suggested_dt, not the adaptive CFL criterion.
     pub fn compute_timestep(
         &self,
         particles: &Particles,
@@ -89,25 +90,20 @@ impl SphSolver {
         let mut dt_min = f64::INFINITY;
 
         for i in 0..particles.count {
-            // Force-based timestep (applies to all particles)
+            if !particles.is_gas(i) {
+                continue;
+            }
+
+            let h = particles.smoothing_length[i];
+
+            // Force-based timestep
             let a_mag = (particles.ax[i].powi(2)
                 + particles.ay[i].powi(2)
                 + particles.az[i].powi(2))
             .sqrt();
             if a_mag > 0.0 {
-                let h = if particles.is_gas(i) {
-                    particles.smoothing_length[i]
-                } else {
-                    // For non-gas particles, use softening or a fraction of system size
-                    // This is a fallback; gravity-only timestep is typically set by the scenario
-                    continue;
-                };
                 let dt_force = self.force_factor * (h / a_mag).sqrt();
                 dt_min = dt_min.min(dt_force);
-            }
-
-            if !particles.is_gas(i) {
-                continue;
             }
 
             // CFL timestep for gas particles
@@ -195,8 +191,8 @@ pub fn step_with_sph(
     for i in 0..n {
         if particles.is_gas(i) {
             particles.internal_energy[i] += particles.du_dt[i] * half_dt;
-            if particles.internal_energy[i] < 1e-10 {
-                particles.internal_energy[i] = 1e-10;
+            if particles.internal_energy[i] < ENERGY_FLOOR {
+                particles.internal_energy[i] = ENERGY_FLOOR;
             }
 
             // Update viscosity parameter (Morris & Monaghan switch)

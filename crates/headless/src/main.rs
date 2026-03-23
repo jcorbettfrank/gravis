@@ -179,6 +179,7 @@ fn main() {
     let mut current_dt = dt;
 
     for step in 1..=cli.steps {
+        let step_dt = current_dt;
         if let Some(sph) = &mut sph_solver {
             let dt_next = sim_core::sph::solver::step_with_sph(
                 &mut particles, gravity.as_ref(), sph, current_dt,
@@ -187,7 +188,7 @@ fn main() {
         } else {
             integrator.step(&mut particles, gravity.as_ref(), current_dt);
         }
-        sim_time += current_dt;
+        sim_time += step_dt;
 
         // Diagnostics
         if cli.diag_interval > 0 && step % cli.diag_interval == 0 {
