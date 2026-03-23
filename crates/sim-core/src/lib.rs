@@ -7,4 +7,5 @@ pub mod particle;
 pub mod scenario;
 pub mod scenarios;
 pub mod snapshot;
+pub mod sph;
 pub mod units;

@@ -4,6 +4,7 @@ use std::io::{self, Read, Write};
 /// Magic bytes to identify snapshot files.
 const MAGIC_V1: &[u8; 8] = b"NBODY001";
 const MAGIC_V2: &[u8; 8] = b"NBODY002";
+const MAGIC_V3: &[u8; 8] = b"NBODY003";
 
 /// A complete simulation state that can be saved and restored.
 #[derive(Debug, Clone)]
@@ -32,15 +33,12 @@ impl Snapshot {
         }
     }
 
-    /// Write snapshot to a binary stream (v2 format with particle types).
+    /// Write snapshot to a binary stream (v3 format with gas fields).
     ///
-    /// Format: magic (8B) | time (f64) | step (u64) | softening (f64) | dt (f64)
-    ///         | count (u64) | x[] | y[] | z[] | vx[] | vy[] | vz[] | mass[]
-    ///         | particle_type[] (count × u8)
-    ///
+    /// V3 extends V2 with SPH gas fields: internal_energy[], smoothing_length[], density[].
     /// All f64 arrays are count × 8 bytes, little-endian.
     pub fn write_to(&self, w: &mut dyn Write) -> io::Result<()> {
-        w.write_all(MAGIC_V2)?;
+        w.write_all(MAGIC_V3)?;
         w.write_all(&self.time.to_le_bytes())?;
         w.write_all(&self.step.to_le_bytes())?;
         w.write_all(&self.softening.to_le_bytes())?;
@@ -55,18 +53,28 @@ impl Snapshot {
         }
 
         w.write_all(&p.particle_type)?;
+
+        // V3 gas fields
+        for arr in [&p.internal_energy, &p.smoothing_length, &p.density] {
+            for &val in arr.iter() {
+                w.write_all(&val.to_le_bytes())?;
+            }
+        }
+
         Ok(())
     }
 
-    /// Read snapshot from a binary stream (supports v1 and v2 formats).
+    /// Read snapshot from a binary stream (supports v1, v2, and v3 formats).
     pub fn read_from(r: &mut dyn Read) -> io::Result<Self> {
         let mut magic = [0u8; 8];
         r.read_exact(&mut magic)?;
 
-        let has_particle_types = if &magic == MAGIC_V2 {
-            true
+        let (has_particle_types, has_gas_fields) = if &magic == MAGIC_V3 {
+            (true, true)
+        } else if &magic == MAGIC_V2 {
+            (true, false)
         } else if &magic == MAGIC_V1 {
-            false
+            (false, false)
         } else {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -101,9 +109,25 @@ impl Snapshot {
             particles.particle_type.resize(count, 0);
             r.read_exact(&mut particles.particle_type)?;
         } else {
-            // V1 format: default all particle types to 0
             particles.particle_type.resize(count, 0);
         }
+
+        // Gas fields: default to zero for v1/v2
+        if has_gas_fields {
+            read_f64_vec(r, &mut particles.internal_energy, count)?;
+            read_f64_vec(r, &mut particles.smoothing_length, count)?;
+            read_f64_vec(r, &mut particles.density, count)?;
+        } else {
+            particles.internal_energy.resize(count, 0.0);
+            particles.smoothing_length.resize(count, 0.0);
+            particles.density.resize(count, 0.0);
+        }
+
+        // Remaining gas fields always default to zero (computed, not stored)
+        particles.pressure.resize(count, 0.0);
+        particles.du_dt.resize(count, 0.0);
+        particles.sound_speed.resize(count, 0.0);
+        particles.alpha_visc.resize(count, 0.0);
 
         Ok(Self {
             time,

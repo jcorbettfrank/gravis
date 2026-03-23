@@ -25,6 +25,8 @@ pub struct Diagnostics {
     pub center_of_mass_velocity: [f64; 3],
     /// Virial ratio 2K/|U| (should be ~1 for virial equilibrium)
     pub virial_ratio: f64,
+    /// Total thermal energy: Σ mᵢ uᵢ (gas particles only)
+    pub thermal_energy: f64,
 }
 
 /// Compute all diagnostics for the current state.
@@ -77,7 +79,15 @@ fn compute_inner(
         }
     }
 
-    let total_energy = kinetic_energy + potential_energy;
+    // Thermal energy: E_th = Σ mᵢ uᵢ (gas particles only)
+    let mut thermal_energy = 0.0;
+    for i in 0..n {
+        if p.is_gas(i) {
+            thermal_energy += p.mass[i] * p.internal_energy[i];
+        }
+    }
+
+    let total_energy = kinetic_energy + potential_energy + thermal_energy;
 
     // Linear momentum: p = Σ m * v
     let mut momentum = [0.0; 3];
@@ -133,6 +143,7 @@ fn compute_inner(
         center_of_mass,
         center_of_mass_velocity,
         virial_ratio,
+        thermal_energy,
     }
 }
 
@@ -157,17 +168,18 @@ impl Diagnostics {
 
     /// CSV header for diagnostic output.
     pub fn csv_header() -> &'static str {
-        "step,time,kinetic_energy,potential_energy,total_energy,momentum_mag,angular_momentum_mag,com_drift,virial_ratio"
+        "step,time,kinetic_energy,potential_energy,thermal_energy,total_energy,momentum_mag,angular_momentum_mag,com_drift,virial_ratio"
     }
 
     /// Format as a CSV row.
     pub fn to_csv_row(&self) -> String {
         format!(
-            "{},{:.6e},{:.10e},{:.10e},{:.10e},{:.10e},{:.10e},{:.10e},{:.6}",
+            "{},{:.6e},{:.10e},{:.10e},{:.10e},{:.10e},{:.10e},{:.10e},{:.10e},{:.6}",
             self.step,
             self.time,
             self.kinetic_energy,
             self.potential_energy,
+            self.thermal_energy,
             self.total_energy,
             self.momentum_magnitude(),
             self.angular_momentum_magnitude(),

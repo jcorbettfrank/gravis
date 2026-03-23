@@ -238,6 +238,75 @@ impl Octree {
         }
     }
 
+    /// Find all particles within `radius` of the point `pos`.
+    ///
+    /// Results are appended to `result`. The caller should clear `result` before
+    /// calling if a fresh result set is desired.
+    pub fn query_ball(&self, pos: [f64; 3], radius: f64, particles: &Particles, result: &mut Vec<u32>) {
+        if self.nodes.is_empty() {
+            return;
+        }
+        self.query_ball_walk(0, pos, radius, radius * radius, particles, result);
+    }
+
+    fn query_ball_walk(
+        &self,
+        node_idx: u32,
+        pos: [f64; 3],
+        radius: f64,
+        radius_sq: f64,
+        particles: &Particles,
+        result: &mut Vec<u32>,
+    ) {
+        let node = &self.nodes[node_idx as usize];
+
+        if node.is_empty() {
+            return;
+        }
+
+        // Prune: check if the node's bounding box intersects the search sphere.
+        // Compute squared distance from pos to nearest point on the AABB.
+        if !Self::sphere_intersects_aabb(pos, radius, &node.bounds) {
+            return;
+        }
+
+        if node.is_leaf() {
+            let pi = node.particle_index as usize;
+            let dx = particles.x[pi] - pos[0];
+            let dy = particles.y[pi] - pos[1];
+            let dz = particles.z[pi] - pos[2];
+            let dist_sq = dx * dx + dy * dy + dz * dz;
+            if dist_sq <= radius_sq {
+                result.push(node.particle_index);
+            }
+            return;
+        }
+
+        for &child in &node.children {
+            if child != NONE {
+                self.query_ball_walk(child, pos, radius, radius_sq, particles, result);
+            }
+        }
+    }
+
+    /// Test whether a sphere intersects an axis-aligned bounding box.
+    #[inline]
+    fn sphere_intersects_aabb(pos: [f64; 3], radius: f64, bounds: &BoundingBox) -> bool {
+        let mut dist_sq = 0.0f64;
+        for d in 0..3 {
+            let lo = bounds.center[d] - bounds.half_width;
+            let hi = bounds.center[d] + bounds.half_width;
+            if pos[d] < lo {
+                let delta = lo - pos[d];
+                dist_sq += delta * delta;
+            } else if pos[d] > hi {
+                let delta = pos[d] - hi;
+                dist_sq += delta * delta;
+            }
+        }
+        dist_sq <= radius * radius
+    }
+
     /// Update center of mass when adding a new particle.
     #[inline]
     fn update_com(node: &mut OctreeNode, px: f64, py: f64, pz: f64, mass: f64) {
