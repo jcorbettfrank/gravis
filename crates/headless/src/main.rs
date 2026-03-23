@@ -3,15 +3,7 @@ use sim_core::barnes_hut::BarnesHut;
 use sim_core::diagnostics;
 use sim_core::gravity::{BruteForce, GravitySolver, NoGravity};
 use sim_core::integrator::{Integrator, LeapfrogKDK};
-use sim_core::scenario::Scenario;
-use sim_core::scenarios::cold_collapse::ColdCollapse;
-use sim_core::scenarios::evrard_collapse::EvrardCollapse;
-use sim_core::scenarios::galaxy_collision::GalaxyCollision;
-use sim_core::scenarios::kelvin_helmholtz::KelvinHelmholtz;
-use sim_core::scenarios::plummer_sphere::PlummerSphere;
-use sim_core::scenarios::sedov_blast::SedovBlast;
-use sim_core::scenarios::sod_shock::SodShockTube;
-use sim_core::scenarios::two_body::TwoBody;
+use sim_core::scenario_builder::{self, ScenarioConfig};
 use sim_core::snapshot::Snapshot;
 use sim_core::sph::solver::SphSolver;
 use std::fs::{self, File};
@@ -103,95 +95,23 @@ fn main() {
     }
 
     // Build scenario
-    let (mut particles, dt, softening, scenario_name) = match cli.scenario.as_str() {
-        "plummer" => {
-            let n = cli.particles.unwrap_or(1000);
-            let scenario = PlummerSphere {
-                n,
-                seed: cli.seed,
-                ..Default::default()
-            };
-            let p = scenario.generate();
-            let dt = cli.dt.unwrap_or_else(|| scenario.suggested_dt());
-            let soft = cli.softening.unwrap_or_else(|| scenario.suggested_softening());
-            (p, dt, soft, scenario.name().to_string())
-        }
-        "two-body" | "kepler" => {
-            let scenario = TwoBody {
-                eccentricity: cli.eccentricity,
-                ..Default::default()
-            };
-            let p = scenario.generate();
-            let dt = cli.dt.unwrap_or_else(|| scenario.suggested_dt());
-            let soft = cli.softening.unwrap_or_else(|| scenario.suggested_softening());
-            (p, dt, soft, scenario.name().to_string())
-        }
-        "cold-collapse" => {
-            let n = cli.particles.unwrap_or(5000);
-            let scenario = ColdCollapse {
-                n,
-                seed: cli.seed,
-                ..Default::default()
-            };
-            let p = scenario.generate();
-            let dt = cli.dt.unwrap_or_else(|| scenario.suggested_dt());
-            let soft = cli.softening.unwrap_or_else(|| scenario.suggested_softening());
-            (p, dt, soft, scenario.name().to_string())
-        }
-        "galaxy-collision" => {
-            let n = cli.particles.unwrap_or(10000);
-            let scenario = GalaxyCollision {
-                n_per_galaxy: n / 2,
-                seed: cli.seed,
-                ..Default::default()
-            };
-            let p = scenario.generate();
-            let dt = cli.dt.unwrap_or_else(|| scenario.suggested_dt());
-            let soft = cli.softening.unwrap_or_else(|| scenario.suggested_softening());
-            (p, dt, soft, scenario.name().to_string())
-        }
-        // SPH scenarios
-        "sod-shock" => {
-            let scenario = SodShockTube::default();
-            let p = scenario.generate();
-            let dt = cli.dt.unwrap_or_else(|| scenario.suggested_dt());
-            let soft = scenario.suggested_softening();
-            (p, dt, soft, scenario.name().to_string())
-        }
-        "sedov-blast" => {
-            let n = cli.particles.unwrap_or(5000);
-            let scenario = SedovBlast { n_particles: n, seed: cli.seed, ..Default::default() };
-            let p = scenario.generate();
-            let dt = cli.dt.unwrap_or_else(|| scenario.suggested_dt());
-            let soft = scenario.suggested_softening();
-            (p, dt, soft, scenario.name().to_string())
-        }
-        "evrard-collapse" => {
-            let n = cli.particles.unwrap_or(5000);
-            let scenario = EvrardCollapse { n_particles: n, seed: cli.seed, ..Default::default() };
-            let p = scenario.generate();
-            let dt = cli.dt.unwrap_or_else(|| scenario.suggested_dt());
-            let soft = scenario.suggested_softening();
-            (p, dt, soft, scenario.name().to_string())
-        }
-        "kelvin-helmholtz" | "kh" => {
-            let scenario = KelvinHelmholtz::default();
-            let p = scenario.generate();
-            let dt = cli.dt.unwrap_or_else(|| scenario.suggested_dt());
-            let soft = scenario.suggested_softening();
-            (p, dt, soft, scenario.name().to_string())
-        }
-        other => {
-            eprintln!("Unknown scenario: {other}");
-            eprintln!("Available: plummer, two-body, cold-collapse, galaxy-collision, sod-shock, sedov-blast, evrard-collapse, kelvin-helmholtz");
-            std::process::exit(1);
-        }
+    let config = ScenarioConfig {
+        particles: cli.particles,
+        seed: cli.seed,
+        eccentricity: cli.eccentricity,
     };
-
-    // Detect if scenario uses SPH (has gas particles)
+    let built = scenario_builder::build(&cli.scenario, &config, cli.dt, cli.softening)
+        .unwrap_or_else(|e| {
+            eprintln!("{e}");
+            std::process::exit(1);
+        });
+    let mut particles = built.particles;
+    let dt = built.dt;
+    let softening = built.softening;
+    let scenario_name = built.name;
     let use_sph = particles.has_gas();
 
-    let gravity: Box<dyn GravitySolver> = if use_sph && !["evrard-collapse"].contains(&cli.scenario.as_str()) {
+    let gravity: Box<dyn GravitySolver> = if scenario_builder::is_pure_hydro(&cli.scenario) {
         Box::new(NoGravity)
     } else {
         match cli.algorithm.as_str() {

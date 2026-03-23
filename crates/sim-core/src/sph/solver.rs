@@ -9,6 +9,13 @@ use crate::particle::Particles;
 use crate::sph::density;
 use crate::sph::forces::{self, ForceIntermediates, ForceParams};
 
+/// Floor for internal energy to prevent negative temperatures.
+const ENERGY_FLOOR: f64 = 1e-10;
+
+/// Minimum CFL timestep to prevent collapse from isolated particles
+/// with bad density estimates or extreme signal velocity.
+const DT_FLOOR: f64 = 1e-6;
+
 /// SPH solver configuration and state.
 pub struct SphSolver {
     /// Adiabatic index (5/3 for monatomic ideal gas).
@@ -119,10 +126,7 @@ impl SphSolver {
             }
         }
 
-        // Floor: prevent timestep from collapsing to near-zero due to
-        // isolated particles with bad density estimates or extreme v_sig.
-        // 1e-6 is small enough for any physical problem we simulate.
-        dt_min.clamp(1e-6, f64::INFINITY)
+        dt_min.clamp(DT_FLOOR, f64::INFINITY)
     }
 }
 
@@ -157,9 +161,8 @@ pub fn step_with_sph(
     for i in 0..n {
         if particles.is_gas(i) {
             particles.internal_energy[i] += particles.du_dt[i] * half_dt;
-            // Floor internal energy to prevent negative temperatures
-            if particles.internal_energy[i] < 1e-10 {
-                particles.internal_energy[i] = 1e-10;
+            if particles.internal_energy[i] < ENERGY_FLOOR {
+                particles.internal_energy[i] = ENERGY_FLOOR;
             }
         }
     }

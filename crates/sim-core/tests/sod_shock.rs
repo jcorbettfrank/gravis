@@ -2,7 +2,7 @@
 
 use sim_core::gravity::{NoGravity, GravitySolver};
 use sim_core::scenario::Scenario;
-use sim_core::scenarios::sod_shock::{sod_analytical, SodShockTube};
+use sim_core::scenarios::sod_shock::SodShockTube;
 use sim_core::sph::boundary::Boundary;
 use sim_core::sph::solver::{self, SphSolver};
 

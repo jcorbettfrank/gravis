@@ -10,7 +10,6 @@ use crate::particle::Particles;
 use crate::scenario::Scenario;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use rand::Rng;
 
 /// Sedov-Taylor blast wave initial conditions.
 pub struct SedovBlast {
@@ -53,26 +52,13 @@ impl Scenario for SedovBlast {
         let mut particles = Particles::new(self.n_particles);
         let mut rng = ChaCha20Rng::seed_from_u64(self.seed);
 
-        // Volume of sphere
-        let vol = 4.0 / 3.0 * std::f64::consts::PI * self.radius.powi(3);
+        let (vol, _, h) = super::sphere_spacing(self.radius, self.n_particles);
         let mass = self.rho_0 * vol / self.n_particles as f64;
 
-        // Mean inter-particle spacing
-        let mean_spacing = (vol / self.n_particles as f64).cbrt();
-        let h = 1.5 * mean_spacing;
-
-        // Place particles uniformly in a sphere via rejection sampling
-        let mut count = 0;
-        while count < self.n_particles {
-            let x: f64 = rng.random::<f64>() * 2.0 * self.radius - self.radius;
-            let y: f64 = rng.random::<f64>() * 2.0 * self.radius - self.radius;
-            let z: f64 = rng.random::<f64>() * 2.0 * self.radius - self.radius;
-
-            if x * x + y * y + z * z <= self.radius * self.radius {
-                particles.add_gas(x, y, z, 0.0, 0.0, 0.0, mass, self.u_background, h);
-                count += 1;
-            }
-        }
+        super::fill_uniform_gas_sphere(
+            &mut particles, &mut rng, self.n_particles,
+            self.radius, mass, self.u_background, h,
+        );
 
         // Deposit blast energy in central particles
         // Find the n_central particles closest to origin
@@ -85,8 +71,7 @@ impl Scenario for SedovBlast {
         dists.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
         let u_blast = self.e_blast / (self.n_central as f64 * mass);
-        for k in 0..self.n_central.min(particles.count) {
-            let i = dists[k].0;
+        for &(i, _) in dists.iter().take(self.n_central.min(particles.count)) {
             particles.internal_energy[i] = u_blast;
         }
 
@@ -98,8 +83,7 @@ impl Scenario for SedovBlast {
     }
 
     fn suggested_softening(&self) -> f64 {
-        let vol = 4.0 / 3.0 * std::f64::consts::PI * self.radius.powi(3);
-        let mean_spacing = (vol / self.n_particles as f64).cbrt();
+        let (_, mean_spacing, _) = super::sphere_spacing(self.radius, self.n_particles);
         0.3 * mean_spacing
     }
 }

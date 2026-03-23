@@ -293,14 +293,14 @@ impl Octree {
     #[inline]
     fn sphere_intersects_aabb(pos: [f64; 3], radius: f64, bounds: &BoundingBox) -> bool {
         let mut dist_sq = 0.0f64;
-        for d in 0..3 {
+        for (d, &p) in pos.iter().enumerate() {
             let lo = bounds.center[d] - bounds.half_width;
             let hi = bounds.center[d] + bounds.half_width;
-            if pos[d] < lo {
-                let delta = lo - pos[d];
+            if p < lo {
+                let delta = lo - p;
                 dist_sq += delta * delta;
-            } else if pos[d] > hi {
-                let delta = pos[d] - hi;
+            } else if p > hi {
+                let delta = p - hi;
                 dist_sq += delta * delta;
             }
         }

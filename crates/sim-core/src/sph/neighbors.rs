@@ -32,6 +32,16 @@ impl NeighborList {
         let (start, end) = self.offsets[i];
         (end - start) as usize
     }
+
+    /// Replace the neighbor list for a single particle by appending new
+    /// neighbors to the end of the flat storage. The old entries become
+    /// orphaned but are harmless — the list is rebuilt every timestep.
+    pub fn replace_neighbors(&mut self, i: usize, new_neighbors: &[u32]) {
+        let start = self.indices.len() as u32;
+        self.indices.extend_from_slice(new_neighbors);
+        let end = self.indices.len() as u32;
+        self.offsets[i] = (start, end);
+    }
 }
 
 /// Build neighbor lists for all gas particles.

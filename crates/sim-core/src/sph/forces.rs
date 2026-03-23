@@ -8,6 +8,9 @@ use crate::particle::Particles;
 use crate::sph::kernel;
 use crate::sph::neighbors::NeighborList;
 
+/// Floor for density and internal energy to prevent division-by-zero divergence.
+const DENSITY_FLOOR: f64 = 1e-10;
+
 /// Parameters for SPH force computation.
 pub struct ForceParams {
     /// Adiabatic index (5/3 for monatomic ideal gas).
@@ -86,8 +89,7 @@ pub fn compute_forces(
         let vyi = particles.vy[i];
         let vzi = particles.vz[i];
         let hi = particles.smoothing_length[i];
-        // Floor density to prevent P/ρ² divergence for isolated particles
-        let rho_i = particles.density[i].max(1e-10);
+        let rho_i = particles.density[i].max(DENSITY_FLOOR);
         let p_i = particles.pressure[i];
         let u_i = particles.internal_energy[i];
         let c_i = particles.sound_speed[i];
@@ -122,13 +124,13 @@ pub fn compute_forces(
             let hj = particles.smoothing_length[j];
             let h_avg = 0.5 * (hi + hj);
 
-            // Skip if outside both kernel supports
-            if r >= 2.0 * hi && r >= 2.0 * hj && r >= 2.0 * h_avg {
+            // Skip if outside both kernel supports (h_avg <= max(hi,hj), so redundant)
+            if r >= 2.0 * hi && r >= 2.0 * hj {
                 continue;
             }
 
             let mj = particles.mass[j];
-            let rho_j = particles.density[j].max(1e-10);
+            let rho_j = particles.density[j].max(DENSITY_FLOOR);
             let p_j = particles.pressure[j];
             let c_j = particles.sound_speed[j];
             let alpha_j = particles.alpha_visc[j];

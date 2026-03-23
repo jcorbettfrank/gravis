@@ -52,6 +52,7 @@ pub fn compute_density(
     let mut omega = vec![1.0; n];
 
     // Iterate density-h for each gas particle
+    #[allow(clippy::needless_range_loop)] // i indexes multiple parallel arrays
     for i in 0..n {
         if !particles.is_gas(i) {
             continue;
@@ -90,17 +91,14 @@ pub fn compute_density(
                 break;
             }
 
-            // Check if h grew beyond our search radius — need to re-query
+            // If h grew beyond the padded search radius, re-query this particle only
             let search_radius = 2.0 * h * search_padding;
             if 2.0 * h_new > search_radius {
-                // Re-query neighbors with larger radius
                 let new_radius = 2.0 * h_new * search_padding;
                 let pos = [particles.x[i], particles.y[i], particles.z[i]];
                 let mut buf = Vec::new();
                 tree.query_ball(pos, new_radius, particles, &mut buf);
-                // Update the neighbor list for this particle
-                // We need to rebuild — for simplicity, replace the whole list
-                nlist = neighbors::build_neighbor_lists(particles, tree, search_padding);
+                nlist.replace_neighbors(i, &buf);
             }
 
             h = h_new;

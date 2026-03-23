@@ -161,7 +161,7 @@ impl Particles {
 
     /// Returns true if the system contains any gas particles.
     pub fn has_gas(&self) -> bool {
-        self.particle_type.iter().any(|&t| t == ParticleType::Gas as u8)
+        self.particle_type.contains(&(ParticleType::Gas as u8))
     }
 
     /// Total mass of the system.

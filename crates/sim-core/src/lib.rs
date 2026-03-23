@@ -5,6 +5,7 @@ pub mod integrator;
 pub mod octree;
 pub mod particle;
 pub mod scenario;
+pub mod scenario_builder;
 pub mod scenarios;
 pub mod snapshot;
 pub mod sph;
