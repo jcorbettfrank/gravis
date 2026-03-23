@@ -38,11 +38,13 @@ pub struct DensityResult {
 /// * `tree` - Octree built from current positions
 /// * `gamma` - Adiabatic index (5/3 for monatomic ideal gas)
 /// * `eta` - Smoothing length scaling (h = η(m/ρ)^{1/3}), typically 1.2
+/// * `h_max` - Upper bound on smoothing length (`f64::INFINITY` to disable)
 pub fn compute_density(
     particles: &mut Particles,
     tree: &Octree,
     gamma: f64,
     eta: f64,
+    h_max: f64,
 ) -> DensityResult {
     let n = particles.count;
 
@@ -65,11 +67,11 @@ pub fn compute_density(
             // Compute density with current h
             let (rho, dw_dh_sum) = density_and_dw_dh(particles, &nlist, i, h);
 
-            // Update h from h-ρ relation: h = η(m/ρ)^{1/3}
+            // Update h from h-ρ relation: h = η(m/ρ)^{1/3}, clamped to h_max
             let h_new = if rho > 0.0 {
-                eta * (m_i / rho).cbrt()
+                (eta * (m_i / rho).cbrt()).min(h_max)
             } else {
-                h
+                h.min(h_max)
             };
 
             // Compute grad-h correction: Ω_i = 1 - (∂h/∂ρ) Σ_j m_j ∂W/∂h
@@ -190,7 +192,7 @@ mod tests {
 
         let gamma = 5.0 / 3.0;
         let eta = 1.2;
-        let result = compute_density(&mut particles, &tree, gamma, eta);
+        let result = compute_density(&mut particles, &tree, gamma, eta, f64::INFINITY);
 
         // Expected density: mass / spacing^3 = 1.0 / 0.125 = 8.0
         let expected_rho = mass / (spacing * spacing * spacing);
@@ -274,7 +276,7 @@ mod tests {
         let mut particles = uniform_gas_cube(n_side, spacing, h_bad, 1.0);
 
         let tree = Octree::build(&particles);
-        let _result = compute_density(&mut particles, &tree, 5.0 / 3.0, 1.2);
+        let _result = compute_density(&mut particles, &tree, 5.0 / 3.0, 1.2, f64::INFINITY);
 
         // h should have converged to something reasonable
         for i in 0..particles.count {

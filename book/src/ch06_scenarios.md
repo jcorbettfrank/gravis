@@ -182,7 +182,7 @@ A cold, thin disk is violently unstable to axisymmetric perturbations. [Toomre's
 
 Halo particles are simpler: they're distributed isotropically. The position sampling uses the Hernquist CDF inversion described above, with a uniform random direction on the sphere.
 
-For velocities, we use the **virial approximation**: the velocity dispersion at radius $r$ is $\sigma(r) = V_c(r) / \sqrt{2}$, with three independent Gaussian components (isotropic). This comes from the virial theorem for a self-gravitating system in equilibrium, where $2K = -W$ implies $\langle v^2 \rangle = V_c^2$ and each of the three components carries $V_c^2 / 3$. The $1/\sqrt{2}$ factor gives $\sigma$ per component for isotropic orbits.
+For velocities, we use the **isothermal sphere approximation**: the velocity dispersion at radius $r$ is $\sigma(r) = V_c(r) / \sqrt{2}$, with three independent Gaussian components (isotropic). This follows from the Jeans equation for a self-gravitating spherical system with an isotropic velocity distribution and a flat rotation curve: the radial velocity dispersion satisfies $\sigma_r^2 = V_c^2 / 2$. With isotropy, all three components share this value, giving $\sigma = V_c / \sqrt{2}$.
 
 The velocities are sampled via the [Box-Muller transform](https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform):
 

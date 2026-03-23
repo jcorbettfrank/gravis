@@ -263,7 +263,7 @@ mod tests {
 
         let tree = Octree::build(&particles);
         let gamma = 5.0 / 3.0;
-        let result = density::compute_density(&mut particles, &tree, gamma, 1.2);
+        let result = density::compute_density(&mut particles, &tree, gamma, 1.2, f64::INFINITY);
         particles.clear_accelerations();
         particles.clear_sph_rates();
 
@@ -305,7 +305,7 @@ mod tests {
 
         let tree = Octree::build(&particles);
         let gamma = 5.0 / 3.0;
-        let result = density::compute_density(&mut particles, &tree, gamma, 1.2);
+        let result = density::compute_density(&mut particles, &tree, gamma, 1.2, f64::INFINITY);
         particles.clear_accelerations();
         particles.clear_sph_rates();
 
@@ -321,7 +321,7 @@ mod tests {
         particles2.add_gas(1.0, 0.0, 0.0, 0.5, 0.0, 0.0, 1.0, 1.0, h);
 
         let tree2 = Octree::build(&particles2);
-        let result2 = density::compute_density(&mut particles2, &tree2, gamma, 1.2);
+        let result2 = density::compute_density(&mut particles2, &tree2, gamma, 1.2, f64::INFINITY);
         particles2.clear_accelerations();
         particles2.clear_sph_rates();
 

@@ -7,6 +7,12 @@ members = [
     "crates/native-app",
     "crates/web-app",
 ]
+default-members = [
+    "crates/sim-core",
+    "crates/render-core",
+    "crates/headless",
+    "crates/native-app",
+]
 
 [workspace.package]
 version = "0.1.0"

@@ -28,6 +28,10 @@ pub struct SphSolver {
     pub cfl_factor: f64,
     /// Safety factor for acceleration-based timestep.
     pub force_factor: f64,
+    /// Upper bound on smoothing length. Prevents runaway h growth for
+    /// isolated particles whose density drops toward zero. `f64::INFINITY`
+    /// disables the clamp.
+    pub h_max: f64,
     /// Reusable octree to avoid repeated allocations.
     tree: Octree,
 }
@@ -41,6 +45,7 @@ impl SphSolver {
             force_params: ForceParams::default(),
             cfl_factor: 0.3,
             force_factor: 0.25,
+            h_max: f64::INFINITY,
             tree: Octree {
                 nodes: Vec::new(),
             },
@@ -63,7 +68,7 @@ impl SphSolver {
 
         // Phase 1: Density + adaptive h + EOS + grad-h corrections
         let density_result =
-            density::compute_density(particles, &self.tree, self.gamma, self.eta);
+            density::compute_density(particles, &self.tree, self.gamma, self.eta, self.h_max);
 
         // Phase 2: Forces (pressure gradient + viscosity + conductivity)
         forces::compute_forces(

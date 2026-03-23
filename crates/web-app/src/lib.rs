@@ -1,3 +1,7 @@
+// This crate only compiles for wasm32 targets (uses wasm_bindgen, web_sys).
+// The cfg gate prevents native-target clippy/check from failing on web-only APIs.
+#![cfg(target_arch = "wasm32")]
+
 use std::cell::RefCell;
 use std::rc::Rc;
 

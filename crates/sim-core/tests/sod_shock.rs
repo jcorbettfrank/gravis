@@ -74,4 +74,18 @@ fn sod_shock_density_profile() {
         "Expected rightward-moving particles (shock), found {} (step={}, t={:.4})",
         n_moved_right, step, t
     );
+
+    // Verify no NaN or Inf in the result
+    for i in 0..particles.count {
+        assert!(
+            particles.density[i].is_finite() && particles.internal_energy[i].is_finite(),
+            "NaN/Inf in particle {i}: rho={}, u={}",
+            particles.density[i], particles.internal_energy[i]
+        );
+    }
+
+    // Note: quantitative comparison to the analytical Riemann solution
+    // (sod_analytical) requires higher resolution (~1000+ particles in x).
+    // This test uses a minimal grid for speed; artifact-quality validation
+    // should use the default SodShockTube resolution and plot the profiles.
 }
