@@ -27,6 +27,10 @@
 - [Smoothed Particle Hydrodynamics](ch07_sph.md)
 - [Shocks & Verification](ch08_shocks.md)
 
+# Part VI: Text-to-Universe
+
+- [Scenario Specs: Universes as Data](ch09_specs.md)
+
 ---
 
 # Appendices

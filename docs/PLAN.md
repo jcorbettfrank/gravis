@@ -347,6 +347,9 @@ Part V: Gas Dynamics
   Ch 7: Smoothed Particle Hydrodynamics  (M6)
   Ch 8: Shocks & Verification            (M6)
 
+Part VI: Text-to-Universe
+  Ch 9: Scenario Specs                   (M8)
+
 Appendices
   A: Verification Tests                  (updated each milestone)
   B: GPU Compute                         (M7 stretch)
