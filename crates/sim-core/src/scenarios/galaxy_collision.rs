@@ -30,6 +30,12 @@ pub struct GalaxyModel {
     pub disk_max_radius: f64,
     /// Maximum halo radius (truncation)
     pub halo_max_radius: f64,
+    /// Fraction of the galaxy's particles that are stars (disk + bulge).
+    /// `None` splits particles by mass, so every particle has the same mass
+    /// and the halo gets most of them. `Some(f)` gives stars `f` of the
+    /// particles regardless of mass: lighter star particles, heavier halo
+    /// particles (see ADR 009 for the disk-heating trade-off).
+    pub star_particle_fraction: Option<f64>,
 }
 
 impl Default for GalaxyModel {
@@ -44,6 +50,7 @@ impl Default for GalaxyModel {
             halo_scale_radius: 5.0,
             disk_max_radius: 6.0,  // 6 scale radii
             halo_max_radius: 30.0, // 6 halo scale radii
+            star_particle_fraction: None,
         }
     }
 }
@@ -54,18 +61,44 @@ impl GalaxyModel {
         self.baryon_mass * (1.0 + self.halo_mass_ratio)
     }
 
+    /// Particle counts `(disk, bulge, halo)` for a galaxy of `n` particles.
+    ///
+    /// Without `star_particle_fraction`, particles are split in proportion to
+    /// mass (equal particle masses). With it, stars get that fraction of the
+    /// particles, shared between disk and bulge by mass, and the halo the rest.
+    pub fn particle_split(&self, n: usize) -> (usize, usize, usize) {
+        let m_disk = self.baryon_mass * self.disk_fraction;
+        let m_bulge = self.baryon_mass * (1.0 - self.disk_fraction);
+        let m_halo = self.baryon_mass * self.halo_mass_ratio;
+
+        let Some(f) = self.star_particle_fraction else {
+            let m_total = m_disk + m_bulge + m_halo;
+            let n_disk = ((n as f64) * m_disk / m_total).round() as usize;
+            let n_bulge = ((n as f64) * m_bulge / m_total).round() as usize;
+            // Rounding can overshoot by one when there is no halo mass to absorb it
+            let n_halo = n.saturating_sub(n_disk + n_bulge);
+            return (n_disk, n_bulge, n_halo);
+        };
+
+        let mut n_star = ((n as f64) * f).round() as usize;
+        if m_halo > 0.0 {
+            // A halo with mass needs at least one particle to carry it
+            n_star = n_star.min(n.saturating_sub(1));
+        } else {
+            n_star = n;
+        }
+        let n_disk = ((n_star as f64) * self.disk_fraction).round() as usize;
+        let n_bulge = n_star - n_disk;
+        (n_disk, n_bulge, n - n_star)
+    }
+
     /// Append one galaxy of `n` particles to `particles`, split among disk,
-    /// bulge, and halo in proportion to their mass.
+    /// bulge, and halo by [`particle_split`](Self::particle_split).
     pub fn generate_into(&self, particles: &mut Particles, rng: &mut ChaCha20Rng, n: usize) {
         let m_disk = self.baryon_mass * self.disk_fraction;
         let m_bulge = self.baryon_mass * (1.0 - self.disk_fraction);
         let m_halo = self.baryon_mass * self.halo_mass_ratio;
-        let m_total = m_disk + m_bulge + m_halo;
-
-        let n_disk = ((n as f64) * m_disk / m_total).round() as usize;
-        let n_bulge = ((n as f64) * m_bulge / m_total).round() as usize;
-        // Rounding can overshoot by one when there is no halo mass to absorb it
-        let n_halo = n.saturating_sub(n_disk + n_bulge);
+        let (n_disk, n_bulge, n_halo) = self.particle_split(n);
 
         generate_galaxy(
             particles,
@@ -189,6 +222,7 @@ impl GalaxyCollision {
             halo_scale_radius: self.halo_scale_radius,
             disk_max_radius: self.disk_max_radius,
             halo_max_radius: self.halo_max_radius,
+            star_particle_fraction: None,
         }
     }
 }

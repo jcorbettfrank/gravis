@@ -42,6 +42,10 @@ use crate::units::G;
 /// (`"particles": 5e7`) allocating gigabytes; renderers may impose lower caps.
 pub const MAX_PARTICLES: usize = 500_000;
 
+/// Default fraction of a `disk_galaxy`'s particles that are stars (disk +
+/// bulge). Chosen from the disk-heating measurements in ADR 009.
+pub const DEFAULT_STAR_PARTICLE_FRACTION: f64 = 0.5;
+
 /// A complete scenario: metadata, optional integration overrides, and the
 /// components that make up the initial conditions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -107,6 +111,11 @@ pub struct DiskGalaxy {
     pub halo_scale_radius: f64,
     pub disk_max_radius: f64,
     pub halo_max_radius: f64,
+    /// Fraction of `particles` that are stars (disk + bulge); the halo gets
+    /// the rest, so star particles are lighter than halo particles.
+    /// `null` splits particles by mass instead (equal-mass particles, ~91%
+    /// dark matter for a default galaxy).
+    pub star_particle_fraction: Option<f64>,
 }
 
 impl Default for DiskGalaxy {
@@ -126,6 +135,7 @@ impl Default for DiskGalaxy {
             halo_scale_radius: m.halo_scale_radius,
             disk_max_radius: m.disk_max_radius,
             halo_max_radius: m.halo_max_radius,
+            star_particle_fraction: Some(DEFAULT_STAR_PARTICLE_FRACTION),
         }
     }
 }
@@ -142,6 +152,7 @@ impl DiskGalaxy {
             halo_scale_radius: self.halo_scale_radius,
             disk_max_radius: self.disk_max_radius,
             halo_max_radius: self.halo_max_radius,
+            star_particle_fraction: self.star_particle_fraction,
         }
     }
 }
@@ -295,6 +306,13 @@ impl Component {
                     return Err(format!(
                         "{ctx}: halo_max_radius ({}) must be at least 10% of halo_scale_radius ({})",
                         c.halo_max_radius, c.halo_scale_radius
+                    ));
+                }
+                if let Some(f) = c.star_particle_fraction
+                    && !(f > 0.0 && f <= 1.0)
+                {
+                    return Err(format!(
+                        "{ctx}: star_particle_fraction must be in (0, 1] or null, got {f}"
                     ));
                 }
             }

@@ -51,8 +51,11 @@ exactly at `position` and moves exactly at `velocity`.
 ### `disk_galaxy`
 
 Exponential stellar disk, Plummer bulge, and Hernquist dark matter halo
-([ADR 006](../docs/adr/006-galaxy-model.md)). Particles have equal mass, so
-most of them (10 of every 11 at the default halo ratio) are dark matter.
+([ADR 006](../docs/adr/006-galaxy-model.md)). By default half the particles
+are stars (disk + bulge) and half dark matter, so star particles are lighter
+than halo particles (10× at the default halo ratio). Heavier halo particles
+heat the disk; up to a mass ratio of ~10 that heating is no worse than with
+equal masses ([ADR 009](../docs/adr/009-star-particle-fraction.md)).
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -67,6 +70,7 @@ most of them (10 of every 11 at the default halo ratio) are dark matter.
 | `halo_scale_radius` | `5.0` | Hernquist halo scale |
 | `disk_max_radius` | `6.0` | Disk truncation |
 | `halo_max_radius` | `30.0` | Halo truncation (≥ 10% of `halo_scale_radius`) |
+| `star_particle_fraction` | `0.5` | Share of `particles` that are stars, in (0, 1]. `null` splits by mass (equal-mass particles, ~91% dark matter). With a heavier halo, lower it to keep `halo_mass_ratio` × f / (1 − f) near 10 |
 
 A smaller galaxy should shrink with its mass: at a fraction *f* of the default
 mass, scaling every radius by roughly *f*^⅓ keeps a similar density (see
