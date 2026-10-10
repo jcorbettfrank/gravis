@@ -34,7 +34,7 @@ pub struct GalaxyModel {
     /// `None` splits particles by mass, so every particle has the same mass
     /// and the halo gets most of them. `Some(f)` gives stars `f` of the
     /// particles regardless of mass: lighter star particles, heavier halo
-    /// particles (see ADR 009 for the disk-heating trade-off).
+    /// particles (see ADR 011 for the disk-heating trade-off).
     pub star_particle_fraction: Option<f64>,
 }
 

@@ -55,7 +55,7 @@ Exponential stellar disk, Plummer bulge, and Hernquist dark matter halo
 are stars (disk + bulge) and half dark matter, so star particles are lighter
 than halo particles (10× at the default halo ratio). Heavier halo particles
 heat the disk; up to a mass ratio of ~10 that heating is no worse than with
-equal masses ([ADR 009](../docs/adr/009-star-particle-fraction.md)).
+equal masses ([ADR 011](../docs/adr/011-star-particle-fraction.md)).
 
 | Field | Default | Meaning |
 |---|---|---|

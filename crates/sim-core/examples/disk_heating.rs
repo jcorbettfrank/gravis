@@ -1,5 +1,5 @@
 //! Disk heating of an isolated galaxy as a function of the star particle
-//! fraction (ADR 009).
+//! fraction (ADR 011).
 //!
 //! Evolves one default `GalaxyModel` with Barnes-Hut and prints, every
 //! `--every` time units, the disk's thickness and velocity dispersions in

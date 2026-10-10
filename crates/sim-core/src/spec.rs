@@ -43,7 +43,7 @@ use crate::units::G;
 pub const MAX_PARTICLES: usize = 500_000;
 
 /// Default fraction of a `disk_galaxy`'s particles that are stars (disk +
-/// bulge). Chosen from the disk-heating measurements in ADR 009.
+/// bulge). Chosen from the disk-heating measurements in ADR 011.
 pub const DEFAULT_STAR_PARTICLE_FRACTION: f64 = 0.5;
 
 /// A complete scenario: metadata, optional integration overrides, and the

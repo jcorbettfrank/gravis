@@ -1,4 +1,4 @@
-# ADR 009: Unequal Star and Dark-Matter Particle Masses
+# ADR 011: Unequal Star and Dark-Matter Particle Masses
 
 **Date**: 2026-10-10
 **Status**: Accepted
