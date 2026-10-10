@@ -1,5 +1,6 @@
 use wgpu::util::DeviceExt;
 
+use crate::color::ParticleStyle;
 use crate::gpu_types::{CameraUniform, GpuParticle, QuadVertex};
 
 const PARTICLE_WGSL: &str = r#"
@@ -16,21 +17,26 @@ struct CameraUniform {
 struct VertexInput {
     @location(0) offset: vec2<f32>,
     @location(1) position: vec3<f32>,
-    @location(2) mass: f32,
+    @location(2) size: f32,
     @location(3) color: vec4<f32>,
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
-    @location(1) brightness: f32,
-    @location(2) color: vec4<f32>,
+    @location(1) color: vec4<f32>,
 };
+
+// Smallest on-screen size, as a fraction of the distance to the camera
+// (≈3 px across an 800 px-tall view). Like a telescope's point-spread
+// function: a star never shrinks below it however far away it is, so a
+// galaxy seen whole still shows its stars, and dense regions add up brighter.
+const MIN_ANGULAR_SIZE: f32 = 0.003;
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
-    let base_size = 0.03;
-    let size = base_size * pow(max(in.mass * 1000.0, 0.01), 0.333);
+    let depth = (camera.view_proj * vec4<f32>(in.position, 1.0)).w;
+    let size = max(in.size, MIN_ANGULAR_SIZE * depth);
     let world_pos = in.position
         + camera.camera_right * in.offset.x * size
         + camera.camera_up * in.offset.y * size;
@@ -38,7 +44,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
     out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);
     out.uv = in.offset + vec2<f32>(0.5, 0.5);
-    out.brightness = clamp(pow(max(in.mass * 1000.0, 0.01), 0.5), 0.3, 1.0);
     out.color = in.color;
     return out;
 }
@@ -50,8 +55,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
     let alpha = (1.0 - smoothstep(0.0, 1.0, dist)) * in.color.a;
-    let color = in.color.rgb * in.brightness;
-    return vec4<f32>(color * alpha, alpha);
+    return vec4<f32>(in.color.rgb * alpha, alpha);
 }
 "#;
 
@@ -74,6 +78,8 @@ pub struct ParticlePipeline {
     camera_bind_group: wgpu::BindGroup,
     max_particles: usize,
     current_count: u32,
+    /// Reused per-frame packing buffer.
+    scratch: Vec<GpuParticle>,
 }
 
 impl ParticlePipeline {
@@ -235,6 +241,7 @@ impl ParticlePipeline {
             camera_bind_group,
             max_particles,
             current_count: 0,
+            scratch: Vec::new(),
         }
     }
 
@@ -246,17 +253,28 @@ impl ParticlePipeline {
         &self.camera_bind_group
     }
 
-    /// Update instance data from position, mass, and color slices.
-    /// All slices must have the same length.
+    /// Update instance data from per-particle positions and styles (the two
+    /// slices are parallel). Hidden particles are left out of the draw.
     pub fn update_instances(
         &mut self,
         queue: &wgpu::Queue,
         device: &wgpu::Device,
         positions: &[[f32; 3]],
-        masses: &[f32],
-        colors: &[[f32; 4]],
+        styles: &[ParticleStyle],
     ) {
-        let count = positions.len();
+        self.scratch.clear();
+        self.scratch.extend(
+            positions
+                .iter()
+                .zip(styles)
+                .filter(|(_, style)| style.is_visible())
+                .map(|(pos, style)| GpuParticle {
+                    position: *pos,
+                    size: style.size,
+                    color: style.color,
+                }),
+        );
+        let count = self.scratch.len();
 
         // Grow instance buffer if needed
         if count > self.max_particles {
@@ -269,18 +287,9 @@ impl ParticlePipeline {
             });
         }
 
-        let gpu_particles: Vec<GpuParticle> = positions
-            .iter()
-            .zip(masses.iter())
-            .zip(colors.iter())
-            .map(|((pos, &mass), color)| GpuParticle {
-                position: *pos,
-                mass,
-                color: *color,
-            })
-            .collect();
-
-        queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&gpu_particles));
+        if count > 0 {
+            queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&self.scratch));
+        }
         self.current_count = count as u32;
     }
 

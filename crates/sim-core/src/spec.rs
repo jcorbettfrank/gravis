@@ -31,7 +31,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
 
-use crate::particle::Particles;
+use crate::particle::{ParticleType, Particles};
 use crate::scenario::Scenario;
 use crate::scenarios::galaxy_collision::GalaxyModel;
 use crate::scenarios::plummer_sphere::sample_plummer_particle;
@@ -444,7 +444,10 @@ impl Scenario for ScenarioSpec {
                     }
                 }
                 Component::PointMass(p) => {
-                    particles.add(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, p.mass);
+                    particles.add_typed(
+                        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, p.mass,
+                        ParticleType::PointMass as u8,
+                    );
                 }
                 Component::GasCloud(g) => {
                     let (_, _, h) = sphere_spacing(g.radius, g.particles);

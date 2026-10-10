@@ -7,6 +7,10 @@ pub enum ParticleType {
     BulgeStar = 2,
     DarkMatter = 3,
     Gas = 4,
+    /// A single massive body placed on its own (a black hole, a central
+    /// star). Physically identical to any other particle; the type only
+    /// tells renderers to draw it as a point source rather than by mass.
+    PointMass = 5,
 }
 
 /// Structure-of-Arrays particle storage for cache-friendly iteration.

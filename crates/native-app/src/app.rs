@@ -110,7 +110,7 @@ impl ApplicationHandler for App {
         if let Some(spec) = &self.cli.spec {
             camera.inner.frame_radius(spec.view_radius() as f32);
         }
-        let ui = UiState::new(self.cli.speed, self.cli.algorithm.clone());
+        let ui = UiState::new(self.cli.speed, self.cli.algorithm.clone(), self.cli.show_dark_matter);
         let sim = sim_thread::spawn(&self.cli);
 
         // With --screenshot-time the camera has long settled by the time the
@@ -167,6 +167,18 @@ impl ApplicationHandler for App {
             } => {
                 state.sim.stop();
                 event_loop.exit();
+            }
+            WindowEvent::KeyboardInput {
+                event:
+                    winit::event::KeyEvent {
+                        logical_key: winit::keyboard::Key::Character(ref c),
+                        state: winit::event::ElementState::Pressed,
+                        repeat: false,
+                        ..
+                    },
+                ..
+            } if !egui_consumed && c.eq_ignore_ascii_case("d") => {
+                state.ui.toggle_dark_matter();
             }
             WindowEvent::Resized(new_size) => {
                 if new_size.width > 0 && new_size.height > 0 {

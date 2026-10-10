@@ -62,7 +62,7 @@ impl Scenario for Protoplanetary {
         let m_gas = m_disk / self.n_gas as f64;
 
         // Central star: massive, gravity-only particle at origin
-        particles.add_typed(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, self.m_star, ParticleType::Default as u8);
+        particles.add_typed(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, self.m_star, ParticleType::PointMass as u8);
 
         // Gas disk particles
         // Surface density Σ ∝ r^{-1} → CDF inversion: r = r_in * (r_out/r_in)^U
