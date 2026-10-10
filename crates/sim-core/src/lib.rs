@@ -8,5 +8,6 @@ pub mod scenario;
 pub mod scenario_builder;
 pub mod scenarios;
 pub mod snapshot;
+pub mod spec;
 pub mod sph;
 pub mod units;

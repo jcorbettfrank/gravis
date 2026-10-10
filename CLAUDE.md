@@ -12,6 +12,7 @@ Gravitational N-body simulation in Rust, targeting Apple M5 Pro.
 - **`crates/native-app/`** — real-time macOS renderer + egui HUD
 - **`crates/web-app/`** — browser WASM demo (wasm-pack + web-sys)
 - **`book/`** — mdBook lessons (physics + code walkthroughs)
+- **`specs/`** — JSON scenario specs; format reference in `specs/README.md`
 - **`artifacts/`** — generated benchmarks, snapshots, plots, media
 
 ## Conventions
@@ -42,6 +43,13 @@ cargo run -p native-app --release -- --scenario plummer -n 5000 --speed 10.0
 
 # Capture a screenshot without interactive window
 cargo run -p native-app --release -- --scenario plummer -n 5000 --screenshot artifacts/media/plummer.png
+
+# Run a JSON scenario spec (headless or native; -n rescales it)
+cargo run -p headless --release -- --spec specs/tilted-flyby.json --algorithm barnes-hut --steps 2000
+cargo run -p native-app --release -- --spec specs/tilted-flyby.json --algorithm barnes-hut
+
+# Screenshot at a given sim time (runs flat out to it, then captures)
+cargo run -p native-app --release -- --spec specs/tilted-flyby.json -n 40000 --algorithm barnes-hut --screenshot artifacts/media/flyby.png --screenshot-time 25
 
 # Build WASM web app
 cd crates/web-app && wasm-pack build --target web --release

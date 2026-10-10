@@ -2545,6 +2545,8 @@ dependencies = [
  "rand",
  "rand_chacha",
  "rayon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3160,6 +3162,7 @@ dependencies = [
  "js-sys",
  "log",
  "render-core",
+ "serde_json",
  "sim-core",
  "wasm-bindgen",
  "wasm-bindgen-futures",

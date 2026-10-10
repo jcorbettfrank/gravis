@@ -5,6 +5,7 @@ use sim_core::gravity::{BruteForce, GravitySolver, NoGravity};
 use sim_core::integrator::{Integrator, LeapfrogKDK};
 use sim_core::scenario_builder::{self, ScenarioConfig};
 use sim_core::snapshot::Snapshot;
+use sim_core::spec::ScenarioSpec;
 use sim_core::sph::solver::SphSolver;
 use std::fs::{self, File};
 use std::io::BufWriter;
@@ -18,7 +19,11 @@ struct Cli {
     #[arg(short, long, default_value = "plummer")]
     scenario: String,
 
-    /// Number of particles (overrides scenario default)
+    /// Run a JSON scenario spec instead of a named scenario (see specs/)
+    #[arg(long, conflicts_with = "scenario")]
+    spec: Option<String>,
+
+    /// Number of particles (overrides scenario default; rescales a spec)
     #[arg(short = 'n', long)]
     particles: Option<usize>,
 
@@ -95,23 +100,34 @@ fn main() {
     }
 
     // Build scenario
-    let config = ScenarioConfig {
-        particles: cli.particles,
-        seed: cli.seed,
-        eccentricity: cli.eccentricity,
-    };
-    let built = scenario_builder::build(&cli.scenario, &config, cli.dt, cli.softening)
-        .unwrap_or_else(|e| {
-            eprintln!("{e}");
-            std::process::exit(1);
-        });
+    let built = match &cli.spec {
+        Some(path) => fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read {path}: {e}"))
+            .and_then(|json| ScenarioSpec::from_json(&json))
+            .and_then(|spec| {
+                scenario_builder::build_spec(&spec, cli.particles, cli.dt, cli.softening)
+            }),
+        None => {
+            let config = ScenarioConfig {
+                particles: cli.particles,
+                seed: cli.seed,
+                eccentricity: cli.eccentricity,
+            };
+            scenario_builder::build(&cli.scenario, &config, cli.dt, cli.softening)
+        }
+    }
+    .unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(1);
+    });
     let mut particles = built.particles;
     let dt = built.dt;
     let softening = built.softening;
     let scenario_name = built.name;
     let use_sph = particles.has_gas();
 
-    let gravity: Box<dyn GravitySolver> = if scenario_builder::is_pure_hydro(&cli.scenario) {
+    let pure_hydro = cli.spec.is_none() && scenario_builder::is_pure_hydro(&cli.scenario);
+    let gravity: Box<dyn GravitySolver> = if pure_hydro {
         Box::new(NoGravity)
     } else {
         match cli.algorithm.as_str() {

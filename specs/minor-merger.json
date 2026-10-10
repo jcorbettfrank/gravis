@@ -1,0 +1,24 @@
+{
+  "name": "Minor Merger",
+  "description": "A dwarf galaxy with a fifth of the Milky Way's mass falls in on an inclined orbit and is shredded by tides.",
+  "components": [
+    {
+      "type": "disk_galaxy",
+      "particles": 8000
+    },
+    {
+      "type": "disk_galaxy",
+      "particles": 2000,
+      "position": [9, 0, 3],
+      "velocity": [-0.35, 0.4, 0],
+      "spin_axis": [1, 0, 1],
+      "baryon_mass": 0.2,
+      "disk_scale_radius": 0.6,
+      "disk_scale_height": 0.06,
+      "bulge_scale_radius": 0.18,
+      "halo_scale_radius": 3,
+      "disk_max_radius": 3.6,
+      "halo_max_radius": 18
+    }
+  ]
+}
