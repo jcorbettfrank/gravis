@@ -14,6 +14,7 @@ use crate::scenarios::protoplanetary::Protoplanetary;
 use crate::scenarios::sedov_blast::SedovBlast;
 use crate::scenarios::sod_shock::SodShockTube;
 use crate::scenarios::two_body::TwoBody;
+use crate::spec::ScenarioSpec;
 
 /// Configuration passed from CLI or UI to the scenario factory.
 pub struct ScenarioConfig {
@@ -83,12 +84,36 @@ pub fn build(
         }
     };
 
+    Ok(finish(scenario.as_ref(), dt_override, softening_override))
+}
+
+/// Build a declarative [`ScenarioSpec`], optionally rescaled to about
+/// `particles` particles in total. Overrides work as in [`build`].
+pub fn build_spec(
+    spec: &ScenarioSpec,
+    particles: Option<usize>,
+    dt_override: Option<f64>,
+    softening_override: Option<f64>,
+) -> Result<BuiltScenario, String> {
+    let spec = match particles {
+        Some(n) => spec.with_particle_budget(n),
+        None => spec.clone(),
+    };
+    spec.validate()?;
+    Ok(finish(&spec, dt_override, softening_override))
+}
+
+fn finish(
+    scenario: &dyn Scenario,
+    dt_override: Option<f64>,
+    softening_override: Option<f64>,
+) -> BuiltScenario {
     let particles = scenario.generate();
     let dt = dt_override.unwrap_or_else(|| scenario.suggested_dt());
     let softening = softening_override.unwrap_or_else(|| scenario.suggested_softening());
     let name = scenario.name().to_string();
 
-    Ok(BuiltScenario { particles, dt, softening, name })
+    BuiltScenario { particles, dt, softening, name }
 }
 
 /// Returns true for SPH scenarios that are purely hydrodynamic (no gravity needed).

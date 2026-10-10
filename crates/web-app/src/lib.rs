@@ -29,8 +29,19 @@ use sim_core::scenarios::protoplanetary::Protoplanetary;
 use sim_core::scenarios::sedov_blast::SedovBlast;
 use sim_core::scenarios::sod_shock::SodShockTube;
 use sim_core::scenarios::two_body::TwoBody;
+use sim_core::scenario_builder;
+use sim_core::spec::ScenarioSpec;
 use sim_core::sph::boundary::Boundary;
 use sim_core::sph::solver::{self, SphSolver};
+
+/// Specs above this many particles are rescaled to it on load (M4: 50K
+/// particles stay interactive with Barnes-Hut in the browser).
+const WEB_MAX_PARTICLES: usize = 50_000;
+
+thread_local! {
+    /// Set once `main` has initialized WebGPU; lets JS-facing functions reach the app.
+    static APP: RefCell<Option<Rc<RefCell<AppState>>>> = const { RefCell::new(None) };
+}
 
 // ---------------------------------------------------------------------------
 // Shared application state
@@ -99,6 +110,8 @@ struct AppState {
     scenario_name: String,
     algorithm_name: String,
     particle_count: usize,
+    /// The loaded scenario spec, while one is running instead of a named scenario
+    spec: Option<ScenarioSpec>,
 
     // timing
     accumulator: f64,
@@ -144,7 +157,23 @@ struct SimSetup {
 }
 
 fn create_sim(scenario: &str, n: usize, algorithm: &str) -> SimState {
-    let setup = match scenario {
+    start_sim(scenario_setup(scenario, n, algorithm))
+}
+
+fn create_spec_sim(spec: &ScenarioSpec, algorithm: &str) -> Result<SimState, String> {
+    let built = scenario_builder::build_spec(spec, None, None, None)?;
+    let sph_solver = built.particles.has_gas().then(SphSolver::new);
+    Ok(start_sim(SimSetup {
+        particles: built.particles,
+        dt: built.dt,
+        gravity: make_gravity(algorithm, built.softening),
+        sph_solver,
+        boundary: Boundary::None,
+    }))
+}
+
+fn scenario_setup(scenario: &str, n: usize, algorithm: &str) -> SimSetup {
+    match scenario {
         "two-body" => {
             let s = TwoBody { eccentricity: 0.5, ..Default::default() };
             let p = s.generate();
@@ -236,8 +265,10 @@ fn create_sim(scenario: &str, n: usize, algorithm: &str) -> SimState {
                 sph_solver: None, boundary: Boundary::None,
             }
         }
-    };
+    }
+}
 
+fn start_sim(setup: SimSetup) -> SimState {
     let mut p = setup.particles;
     p.clear_accelerations();
     setup.gravity.compute_accelerations(&mut p);
@@ -411,6 +442,7 @@ pub async fn main() {
         scenario_name,
         algorithm_name,
         particle_count,
+        spec: None,
         accumulator: 0.0,
         last_frame_ms: 0.0,
         fps: 0.0,
@@ -423,6 +455,8 @@ pub async fn main() {
         scratch_masses,
         cached_colors,
     }));
+
+    APP.with(|app| *app.borrow_mut() = Some(state.clone()));
 
     // --- Input event listeners ---
     setup_input_handlers(&canvas, &state);
@@ -526,6 +560,57 @@ pub async fn main() {
     }) as Box<dyn FnMut()>));
 
     request_animation_frame(g.borrow().as_ref().unwrap());
+}
+
+/// Load a JSON scenario spec (see `specs/` in the repo) and start running it.
+///
+/// Returns a JSON summary: `{"name", "particles", "dt", "softening", "rescaled_from"}`,
+/// where `rescaled_from` is the spec's own particle count if it exceeded the
+/// browser limit. Throws with a message naming the offending field if the spec
+/// is invalid.
+#[wasm_bindgen]
+pub fn load_spec(json: &str) -> Result<String, JsError> {
+    let mut spec = ScenarioSpec::from_json(json).map_err(|e| JsError::new(&e))?;
+    let requested = spec.particle_count();
+    let rescaled_from = (requested > WEB_MAX_PARTICLES).then(|| {
+        spec = spec.with_particle_budget(WEB_MAX_PARTICLES);
+        requested
+    });
+
+    let state = APP
+        .with(|app| app.borrow().clone())
+        .ok_or_else(|| JsError::new("the simulator is still starting"))?;
+    let mut st = state
+        .try_borrow_mut()
+        .map_err(|_| JsError::new("the simulator is busy; try again"))?;
+
+    st.sim = create_spec_sim(&spec, &st.algorithm_name).map_err(|e| JsError::new(&e))?;
+    st.camera.frame_radius(spec.view_radius() as f32);
+    st.scenario_name = "custom".to_string();
+    st.spec = Some(spec);
+    refresh_sim_cache(&mut st);
+
+    let spec = st.spec.as_ref().unwrap();
+    Ok(serde_json::json!({
+        "name": spec.name,
+        "particles": st.sim.particles.count,
+        "dt": st.sim.dt,
+        "softening": spec.suggested_softening(),
+        "rescaled_from": rescaled_from,
+    })
+    .to_string())
+}
+
+/// Rebuild the running spec, e.g. after an algorithm or particle-count change.
+fn restart_spec(st: &mut AppState) {
+    let Some(spec) = st.spec.clone() else { return };
+    match create_spec_sim(&spec, &st.algorithm_name) {
+        Ok(sim) => {
+            st.sim = sim;
+            refresh_sim_cache(st);
+        }
+        Err(e) => log::error!("spec rebuild failed: {e}"),
+    }
 }
 
 /// Refresh cached colors and masses after a scenario change.
@@ -903,6 +988,7 @@ fn setup_control_handlers(document: &web_sys::Document, state: &Rc<RefCell<AppSt
             let mut st = s.borrow_mut();
             if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
                 if let Some(val) = read_select_value(&doc, "scenario") {
+                    st.spec = None;
                     st.scenario_name = val;
                     st.sim = create_sim(&st.scenario_name, st.particle_count, &st.algorithm_name);
                     st.camera.desired_distance = camera_distance_for_scenario(&st.scenario_name);
@@ -923,8 +1009,12 @@ fn setup_control_handlers(document: &web_sys::Document, state: &Rc<RefCell<AppSt
             if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
                 if let Some(val) = read_select_value(&doc, "algorithm") {
                     st.algorithm_name = val;
-                    st.sim = create_sim(&st.scenario_name, st.particle_count, &st.algorithm_name);
-                    refresh_sim_cache(&mut st);
+                    if st.spec.is_some() {
+                        restart_spec(&mut st);
+                    } else {
+                        st.sim = create_sim(&st.scenario_name, st.particle_count, &st.algorithm_name);
+                        refresh_sim_cache(&mut st);
+                    }
                 }
             }
         }) as Box<dyn FnMut(_)>);
@@ -941,8 +1031,13 @@ fn setup_control_handlers(document: &web_sys::Document, state: &Rc<RefCell<AppSt
             if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
                 if let Some(val) = read_range_value(&doc, "particle-count") {
                     st.particle_count = val as usize;
-                    st.sim = create_sim(&st.scenario_name, st.particle_count, &st.algorithm_name);
-                    refresh_sim_cache(&mut st);
+                    if let Some(spec) = &st.spec {
+                        st.spec = Some(spec.with_particle_budget(st.particle_count));
+                        restart_spec(&mut st);
+                    } else {
+                        st.sim = create_sim(&st.scenario_name, st.particle_count, &st.algorithm_name);
+                        refresh_sim_cache(&mut st);
+                    }
                 }
             }
         }) as Box<dyn FnMut(_)>);

@@ -1,0 +1,19 @@
+{
+  "name": "Tilted Flyby",
+  "description": "Two Milky Way-like disks on a prograde encounter; the second disk is tilted 60 degrees out of the orbital plane, so only the first throws out long tidal tails (Toomre & Toomre 1972).",
+  "components": [
+    {
+      "type": "disk_galaxy",
+      "particles": 6000,
+      "position": [-7.5, -1, 0],
+      "velocity": [0.25, 0, 0]
+    },
+    {
+      "type": "disk_galaxy",
+      "particles": 6000,
+      "spin_axis": [0, 0.866, 0.5],
+      "position": [7.5, 1, 0],
+      "velocity": [-0.25, 0, 0]
+    }
+  ]
+}

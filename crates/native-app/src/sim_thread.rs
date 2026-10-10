@@ -106,12 +106,18 @@ pub fn spawn(cli: &Cli) -> SimHandle {
 
 fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<SimCommand>) {
     // Build scenario
-    let config = ScenarioConfig {
-        particles: cli.particles,
-        seed: cli.seed,
-        eccentricity: cli.eccentricity,
+    let built = match &cli.spec {
+        Some(spec) => scenario_builder::build_spec(spec, cli.particles, cli.dt, cli.softening),
+        None => {
+            let config = ScenarioConfig {
+                particles: cli.particles,
+                seed: cli.seed,
+                eccentricity: cli.eccentricity,
+            };
+            scenario_builder::build(&cli.scenario, &config, cli.dt, cli.softening)
+        }
     };
-    let built = match scenario_builder::build(&cli.scenario, &config, cli.dt, cli.softening) {
+    let built = match built {
         Ok(b) => b,
         Err(e) => {
             eprintln!("{e}");
@@ -124,7 +130,8 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
     let scenario_name = built.name;
     let use_sph = particles.has_gas();
 
-    let gravity: Box<dyn GravitySolver + Send> = if scenario_builder::is_pure_hydro(&cli.scenario) {
+    let pure_hydro = cli.spec.is_none() && scenario_builder::is_pure_hydro(&cli.scenario);
+    let gravity: Box<dyn GravitySolver + Send> = if pure_hydro {
         Box::new(NoGravity)
     } else {
         match cli.algorithm.as_str() {
@@ -152,6 +159,7 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
     let mut speed_multiplier = cli.speed;
     let mut paused = false;
     let mut current_dt = dt;
+    let mut held_for_screenshot = false;
 
     // Particle types are invariant — share via Arc to avoid cloning per snapshot
     let particle_types = Arc::new(particles.particle_type.clone());
@@ -184,8 +192,11 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
             continue;
         }
 
-        // Advance simulation
-        let target_sim_time = wall_start.elapsed().as_secs_f64() * speed_multiplier;
+        // Advance simulation: paced by wall clock, or flat out to a screenshot time
+        let target_sim_time = match cli.screenshot_time {
+            Some(t) => t,
+            None => wall_start.elapsed().as_secs_f64() * speed_multiplier,
+        };
         let mut steps_this_batch = 0u32;
         let batch_start = Instant::now();
         while sim_time < target_sim_time {
@@ -205,6 +216,18 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
             if steps_this_batch >= 1000 || batch_start.elapsed() >= SNAP_INTERVAL {
                 break;
             }
+        }
+
+        if cli.screenshot_time.is_some() && sim_time >= target_sim_time {
+            // Hold at the screenshot time; send its snapshot once
+            if !held_for_screenshot {
+                let diag = diagnostics::compute_fast(&particles, sim_time, step);
+                let snap = build_render_snapshot_with_diag(&particles, &diag, sim_time, step, &particle_types);
+                let _ = tx.send(snap);
+                held_for_screenshot = true;
+            }
+            thread::sleep(Duration::from_millis(10));
+            continue;
         }
 
         if sim_time >= target_sim_time && steps_this_batch == 0 {

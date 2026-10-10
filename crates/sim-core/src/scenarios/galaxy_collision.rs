@@ -5,6 +5,112 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 
+/// Structural parameters for a single disk galaxy (disk + bulge + halo).
+///
+/// The galaxy is generated at the origin with its disk in the xy-plane,
+/// rotating counter-clockwise about +z. Callers place and orient it.
+/// Shared by [`GalaxyCollision`] and declarative scenario specs.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GalaxyModel {
+    /// Fraction of baryonic mass in the disk (remainder goes to bulge)
+    pub disk_fraction: f64,
+    /// Halo mass as a multiple of baryonic mass
+    pub halo_mass_ratio: f64,
+    /// Total baryonic mass (disk + bulge)
+    pub baryon_mass: f64,
+    /// Exponential disk scale radius
+    pub disk_scale_radius: f64,
+    /// Disk vertical scale height (sech² profile)
+    pub disk_scale_height: f64,
+    /// Plummer bulge scale radius
+    pub bulge_scale_radius: f64,
+    /// Hernquist halo scale radius
+    pub halo_scale_radius: f64,
+    /// Maximum disk radius (truncation)
+    pub disk_max_radius: f64,
+    /// Maximum halo radius (truncation)
+    pub halo_max_radius: f64,
+}
+
+impl Default for GalaxyModel {
+    fn default() -> Self {
+        Self {
+            disk_fraction: 0.7,
+            halo_mass_ratio: 10.0,
+            baryon_mass: 1.0,
+            disk_scale_radius: 1.0,
+            disk_scale_height: 0.1,
+            bulge_scale_radius: 0.3,
+            halo_scale_radius: 5.0,
+            disk_max_radius: 6.0,  // 6 scale radii
+            halo_max_radius: 30.0, // 6 halo scale radii
+        }
+    }
+}
+
+impl GalaxyModel {
+    /// Total mass: baryons plus dark matter halo.
+    pub fn total_mass(&self) -> f64 {
+        self.baryon_mass * (1.0 + self.halo_mass_ratio)
+    }
+
+    /// Append one galaxy of `n` particles to `particles`, split among disk,
+    /// bulge, and halo in proportion to their mass.
+    pub fn generate_into(&self, particles: &mut Particles, rng: &mut ChaCha20Rng, n: usize) {
+        let m_disk = self.baryon_mass * self.disk_fraction;
+        let m_bulge = self.baryon_mass * (1.0 - self.disk_fraction);
+        let m_halo = self.baryon_mass * self.halo_mass_ratio;
+        let m_total = m_disk + m_bulge + m_halo;
+
+        let n_disk = ((n as f64) * m_disk / m_total).round() as usize;
+        let n_bulge = ((n as f64) * m_bulge / m_total).round() as usize;
+        // Rounding can overshoot by one when there is no halo mass to absorb it
+        let n_halo = n.saturating_sub(n_disk + n_bulge);
+
+        generate_galaxy(
+            particles,
+            rng,
+            n_disk,
+            n_bulge,
+            n_halo,
+            m_disk,
+            m_bulge,
+            m_halo,
+            self.disk_scale_radius,
+            self.disk_scale_height,
+            self.disk_max_radius,
+            self.bulge_scale_radius,
+            self.halo_scale_radius,
+            self.halo_max_radius,
+        );
+    }
+
+    /// ~500 steps per orbital period at the disk scale radius.
+    pub fn suggested_dt(&self) -> f64 {
+        // T = 2π * R / V_c(R), with V_c ≈ sqrt(GM_enclosed / R) at R_d.
+        // For a rough estimate, use enclosed mass ≈ 0.26 * M_disk (1 scale radius)
+        // plus bulge and halo contributions
+        let m_enclosed_disk = 0.26 * self.baryon_mass * self.disk_fraction;
+        let r = self.disk_scale_radius;
+        let a_b = self.bulge_scale_radius;
+        let m_bulge = self.baryon_mass * (1.0 - self.disk_fraction);
+        let m_enclosed_bulge = m_bulge * r.powi(3) / (r * r + a_b * a_b).powf(1.5);
+        let a_h = self.halo_scale_radius;
+        let m_halo = self.baryon_mass * self.halo_mass_ratio;
+        let x = r / a_h;
+        let m_enclosed_halo = m_halo * x * x / ((1.0 + x) * (1.0 + x));
+        let m_enc = m_enclosed_disk + m_enclosed_bulge + m_enclosed_halo;
+        let v_c = (G * m_enc / r).sqrt();
+        let t_orb = 2.0 * std::f64::consts::PI * r / v_c;
+        t_orb / 500.0
+    }
+
+    /// Softening ≈ 5% of disk scale radius.
+    pub fn suggested_softening(&self) -> f64 {
+        self.disk_scale_radius * 0.05
+    }
+}
+
 /// Two-galaxy collision scenario.
 ///
 /// Each galaxy consists of three components:
@@ -50,21 +156,39 @@ pub struct GalaxyCollision {
 
 impl Default for GalaxyCollision {
     fn default() -> Self {
+        let model = GalaxyModel::default();
         Self {
             n_per_galaxy: 50_000,
-            disk_fraction: 0.7,
-            halo_mass_ratio: 10.0,
-            baryon_mass: 1.0,
-            disk_scale_radius: 1.0,
-            disk_scale_height: 0.1,
-            bulge_scale_radius: 0.3,
-            halo_scale_radius: 5.0,
-            disk_max_radius: 6.0,  // 6 scale radii
-            halo_max_radius: 30.0, // 6 halo scale radii
+            disk_fraction: model.disk_fraction,
+            halo_mass_ratio: model.halo_mass_ratio,
+            baryon_mass: model.baryon_mass,
+            disk_scale_radius: model.disk_scale_radius,
+            disk_scale_height: model.disk_scale_height,
+            bulge_scale_radius: model.bulge_scale_radius,
+            halo_scale_radius: model.halo_scale_radius,
+            disk_max_radius: model.disk_max_radius,
+            halo_max_radius: model.halo_max_radius,
             separation: 15.0,
             impact_parameter: 2.0,
             approach_velocity: 0.5,
             seed: 42,
+        }
+    }
+}
+
+impl GalaxyCollision {
+    /// The per-galaxy structural model (both galaxies are identical).
+    pub fn model(&self) -> GalaxyModel {
+        GalaxyModel {
+            disk_fraction: self.disk_fraction,
+            halo_mass_ratio: self.halo_mass_ratio,
+            baryon_mass: self.baryon_mass,
+            disk_scale_radius: self.disk_scale_radius,
+            disk_scale_height: self.disk_scale_height,
+            bulge_scale_radius: self.bulge_scale_radius,
+            halo_scale_radius: self.halo_scale_radius,
+            disk_max_radius: self.disk_max_radius,
+            halo_max_radius: self.halo_max_radius,
         }
     }
 }
@@ -76,59 +200,16 @@ impl Scenario for GalaxyCollision {
 
     fn generate(&self) -> Particles {
         let mut rng = ChaCha20Rng::seed_from_u64(self.seed);
+        let model = self.model();
+        let mut particles = Particles::new(self.n_per_galaxy * 2);
 
-        // Mass budget per galaxy
-        let m_disk = self.baryon_mass * self.disk_fraction;
-        let m_bulge = self.baryon_mass * (1.0 - self.disk_fraction);
-        let m_halo = self.baryon_mass * self.halo_mass_ratio;
-        let m_total = m_disk + m_bulge + m_halo;
-
-        // Particle counts proportional to mass
-        let n_disk = ((self.n_per_galaxy as f64) * m_disk / m_total).round() as usize;
-        let n_bulge = ((self.n_per_galaxy as f64) * m_bulge / m_total).round() as usize;
-        let n_halo = self.n_per_galaxy - n_disk - n_bulge;
-
-        let total_particles = self.n_per_galaxy * 2;
-        let mut particles = Particles::new(total_particles);
-
-        // Generate galaxy 1 at origin
+        // Generate both galaxies at the origin, then offset them
         let g1_start = particles.count;
-        generate_galaxy(
-            &mut particles,
-            &mut rng,
-            n_disk,
-            n_bulge,
-            n_halo,
-            m_disk,
-            m_bulge,
-            m_halo,
-            self.disk_scale_radius,
-            self.disk_scale_height,
-            self.disk_max_radius,
-            self.bulge_scale_radius,
-            self.halo_scale_radius,
-            self.halo_max_radius,
-        );
+        model.generate_into(&mut particles, &mut rng, self.n_per_galaxy);
         let g1_end = particles.count;
 
-        // Generate galaxy 2 at origin (will offset after)
         let g2_start = particles.count;
-        generate_galaxy(
-            &mut particles,
-            &mut rng,
-            n_disk,
-            n_bulge,
-            n_halo,
-            m_disk,
-            m_bulge,
-            m_halo,
-            self.disk_scale_radius,
-            self.disk_scale_height,
-            self.disk_max_radius,
-            self.bulge_scale_radius,
-            self.halo_scale_radius,
-            self.halo_max_radius,
-        );
+        model.generate_into(&mut particles, &mut rng, self.n_per_galaxy);
         let g2_end = particles.count;
 
         // Place galaxies on collision trajectory
@@ -157,32 +238,14 @@ impl Scenario for GalaxyCollision {
     }
 
     fn suggested_dt(&self) -> f64 {
-        // Orbital period at disk scale radius:
-        // T = 2π * R / V_c(R)
-        // V_c ≈ sqrt(GM_enclosed / R) at R_d
-        // For a rough estimate, use enclosed mass ≈ 0.26 * M_disk (1 scale radius)
-        // plus bulge and halo contributions
-        let m_enclosed_disk = 0.26 * self.baryon_mass * self.disk_fraction;
-        let r = self.disk_scale_radius;
-        let a_b = self.bulge_scale_radius;
-        let m_bulge = self.baryon_mass * (1.0 - self.disk_fraction);
-        let m_enclosed_bulge = m_bulge * r.powi(3) / (r * r + a_b * a_b).powf(1.5);
-        let a_h = self.halo_scale_radius;
-        let m_halo = self.baryon_mass * self.halo_mass_ratio;
-        let x = r / a_h;
-        let m_enclosed_halo = m_halo * x * x / ((1.0 + x) * (1.0 + x));
-        let m_enc = m_enclosed_disk + m_enclosed_bulge + m_enclosed_halo;
-        let v_c = (G * m_enc / r).sqrt();
-        let t_orb = 2.0 * std::f64::consts::PI * r / v_c;
-        // ~500 steps per inner orbital period
-        t_orb / 500.0
+        self.model().suggested_dt()
     }
 
     fn suggested_softening(&self) -> f64 {
-        // Softening ≈ 5% of disk scale radius
-        self.disk_scale_radius * 0.05
+        self.model().suggested_softening()
     }
 }
+
 
 // ---------------------------------------------------------------------------
 // Disk enclosed mass lookup table

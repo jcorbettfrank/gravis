@@ -80,6 +80,13 @@ impl OrbitalCamera {
         self.desired_distance = self.desired_distance.clamp(Self::MIN_DISTANCE, Self::MAX_DISTANCE);
     }
 
+    /// Set the desired distance so a sphere of `radius` around the target
+    /// fits the vertical field of view, with a small margin.
+    pub fn frame_radius(&mut self, radius: f32) {
+        let distance = 1.05 * radius / (0.5 * self.fov_y).tan();
+        self.desired_distance = distance.clamp(Self::MIN_DISTANCE, Self::MAX_DISTANCE);
+    }
+
     pub fn update(&mut self, dt: f32) {
         let t = 1.0 - (-self.smoothing * dt).exp();
         self.yaw = lerp(self.yaw, self.desired_yaw, t);

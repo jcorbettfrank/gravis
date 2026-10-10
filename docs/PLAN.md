@@ -315,6 +315,15 @@ gravis/
 
 ---
 
+### M8: Text-to-Universe
+**Goal**: Describe a scenario in plain English and watch it run. Claude turns the description into initial conditions, checks them against the conservation diagnostics and a rendered frame, and revises until both hold up.
+
+**Steps**:
+1. ✓ Declarative scenario specs ([ADR 008](adr/008-scenario-specs.md)): JSON components (`disk_galaxy` with `spin_axis`, `plummer`, `point_mass`, `gas_cloud`) loaded by headless and native-app (`--spec`) and the browser (`load_spec`). Native `--screenshot-time` renders a chosen sim time.
+2. A Claude Code skill that writes a spec from a description, runs it headless, reads energy drift and structure, renders frames, and revises.
+3. A public page where visitors type their own descriptions.
+4. Star/dark-matter particle split and telescope-like rendering (dark matter hidden by default), measured for disk heating.
+
 ## Book Table of Contents
 
 ```

@@ -37,6 +37,8 @@ struct RunningState {
     last_frame: Instant,
     screenshot_frames_remaining: Option<u32>,
     screenshot_path: Option<String>,
+    /// Sim time of the latest snapshot (None before the first arrives)
+    latest_sim_time: Option<f64>,
 }
 
 impl App {
@@ -104,11 +106,17 @@ impl ApplicationHandler for App {
         surface.configure(&device, &surface_config);
 
         let renderer = Renderer::new(&device, &queue, format, size.width, size.height, &window);
-        let camera = NativeCamera::new(size.width as f32 / size.height as f32);
+        let mut camera = NativeCamera::new(size.width as f32 / size.height as f32);
+        if let Some(spec) = &self.cli.spec {
+            camera.inner.frame_radius(spec.view_radius() as f32);
+        }
         let ui = UiState::new(self.cli.speed, self.cli.algorithm.clone());
         let sim = sim_thread::spawn(&self.cli);
 
-        let screenshot_frames_remaining = self.cli.screenshot.as_ref().map(|_| 100u32);
+        // With --screenshot-time the camera has long settled by the time the
+        // sim arrives, so a few frames suffice
+        let settle_frames = if self.cli.screenshot_time.is_some() { 10 } else { 100 };
+        let screenshot_frames_remaining = self.cli.screenshot.as_ref().map(|_| settle_frames);
         let screenshot_path = self.cli.screenshot.clone();
 
         self.state = AppState::Running(RunningState {
@@ -124,6 +132,7 @@ impl ApplicationHandler for App {
             last_frame: Instant::now(),
             screenshot_frames_remaining,
             screenshot_path,
+            latest_sim_time: None,
         });
     }
 
@@ -186,6 +195,7 @@ impl ApplicationHandler for App {
                         .camera
                         .set_target(glam::Vec3::from(snap.center_of_mass));
                     state.ui.update_from_snapshot(snap);
+                    state.latest_sim_time = Some(snap.sim_time);
                 }
 
                 state.ui.record_frame_time(frame_dt);
@@ -231,7 +241,11 @@ impl ApplicationHandler for App {
                 surface_tex.present();
 
                 // Screenshot mode
-                if let Some(ref mut remaining) = state.screenshot_frames_remaining {
+                let reached_time = match self.cli.screenshot_time {
+                    Some(t) => state.latest_sim_time.is_some_and(|now| now >= t),
+                    None => true,
+                };
+                if reached_time && let Some(ref mut remaining) = state.screenshot_frames_remaining {
                     if *remaining == 0 {
                         if let Some(path) = state.screenshot_path.take() {
                             capture_screenshot(

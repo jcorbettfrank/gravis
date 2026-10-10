@@ -79,6 +79,43 @@
             font-size: 18px;
             color: #ff6060;
         }
+        .spec-panel {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            width: min(420px, calc(100% - 16px));
+            background: rgba(10, 10, 20, 0.92);
+            border: 1px solid #2a2a3a;
+            border-radius: 6px;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .spec-panel[hidden] { display: none; }
+        .spec-panel textarea {
+            height: 260px;
+            resize: vertical;
+            background: #12121a;
+            color: #c0c0d0;
+            border: 1px solid #3a3a4a;
+            border-radius: 4px;
+            padding: 6px;
+            font: 11px 'SF Mono', 'Menlo', monospace;
+        }
+        .spec-panel .row { display: flex; align-items: center; gap: 8px; }
+        .spec-panel button {
+            background: #2a2a4a;
+            color: #c0c0d0;
+            border: 1px solid #4a4a6a;
+            border-radius: 4px;
+            padding: 4px 12px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        #spec-status { font-size: 12px; overflow-wrap: anywhere; }
+        #spec-status.ok { color: #70a0ff; }
+        #spec-status.err { color: #ff6060; }
         .range-value {
             min-width: 40px;
             text-align: right;
@@ -115,6 +152,7 @@
                     <option value="kelvin-helmholtz">Kelvin-Helmholtz</option>
                     <option value="protoplanetary">Protoplanetary Disk</option>
                     <option value="cold-collapse-gas">Gas Cloud Collapse</option>
+                    <option value="custom" disabled hidden>Custom Spec</option>
                 </select>
             </label>
             <label>
@@ -135,9 +173,55 @@
                 <span class="range-value" id="speed-val">1x</span>
             </label>
             <button id="pause-btn">Pause</button>
+            <button id="spec-btn" title="Run a JSON scenario spec">Spec…</button>
         </div>
         <div class="canvas-container">
             <canvas id="simulation"></canvas>
+            <div class="spec-panel" id="spec-panel" hidden>
+                <textarea id="spec-json" spellcheck="false" aria-label="Scenario spec JSON">{
+  "name": "Tilted Flyby",
+  "description": "Two Milky Way-like disks on a prograde encounter; the second disk is tilted 60 degrees out of the orbital plane, so only the first throws out long tidal tails (Toomre &amp; Toomre 1972).",
+  "components": [
+    {
+      "type": "disk_galaxy",
+      "particles": 6000,
+      "position": [
+        -7.5,
+        -1,
+        0
+      ],
+      "velocity": [
+        0.25,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "disk_galaxy",
+      "particles": 6000,
+      "spin_axis": [
+        0,
+        0.866,
+        0.5
+      ],
+      "position": [
+        7.5,
+        1,
+        0
+      ],
+      "velocity": [
+        -0.25,
+        0,
+        0
+      ]
+    }
+  ]
+}</textarea>
+                <div class="row">
+                    <button id="spec-run">Run spec</button>
+                    <span id="spec-status"></span>
+                </div>
+            </div>
             <div class="stats">
                 FPS: <span id="stat-fps">—</span><br>
                 Particles: <span id="stat-particles">—</span><br>
@@ -164,8 +248,26 @@
         }
     </script>
     <script type="module">
-        import init from './pkg/web_app.js';
+        import init, { load_spec } from './pkg/web_app.js';
         init();
+
+        const panel = document.getElementById('spec-panel');
+        const status = document.getElementById('spec-status');
+        document.getElementById('spec-btn').addEventListener('click', () => {
+            panel.hidden = !panel.hidden;
+        });
+        document.getElementById('spec-run').addEventListener('click', () => {
+            try {
+                const info = JSON.parse(load_spec(document.getElementById('spec-json').value));
+                document.getElementById('scenario').value = 'custom';
+                status.textContent = `${info.name}: ${info.particles} particles` +
+                    (info.rescaled_from ? ` (rescaled from ${info.rescaled_from})` : '');
+                status.className = 'ok';
+            } catch (e) {
+                status.textContent = e.message ?? String(e);
+                status.className = 'err';
+            }
+        });
     </script>
 </body>
 </html>

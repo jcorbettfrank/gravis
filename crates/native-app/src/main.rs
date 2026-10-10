@@ -1,4 +1,5 @@
 use clap::Parser;
+use sim_core::spec::ScenarioSpec;
 use winit::event_loop::EventLoop;
 
 mod app;
@@ -13,7 +14,15 @@ pub struct Cli {
     #[arg(short, long, default_value = "plummer")]
     pub scenario: String,
 
-    /// Number of particles (overrides scenario default)
+    /// Run a JSON scenario spec instead of a named scenario (see specs/)
+    #[arg(long = "spec", value_name = "PATH", conflicts_with = "scenario")]
+    pub spec_path: Option<String>,
+
+    /// The parsed `--spec` file, loaded once in `main`
+    #[arg(skip)]
+    pub spec: Option<ScenarioSpec>,
+
+    /// Number of particles (overrides scenario default; rescales a spec)
     #[arg(short = 'n', long)]
     pub particles: Option<usize>,
 
@@ -41,6 +50,10 @@ pub struct Cli {
     #[arg(long)]
     pub screenshot: Option<String>,
 
+    /// Run as fast as possible to this sim time, then take the screenshot
+    #[arg(long, requires = "screenshot")]
+    pub screenshot_time: Option<f64>,
+
     /// Force calculation algorithm
     #[arg(long, default_value = "brute-force", value_parser = ["brute-force", "barnes-hut"])]
     pub algorithm: String,
@@ -53,7 +66,7 @@ pub struct Cli {
 fn main() {
     env_logger::init();
 
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
 
     // Validate
     if let Some(n) = cli.particles
@@ -80,6 +93,25 @@ fn main() {
     {
         eprintln!("Error: --softening must be non-negative, got {s}");
         std::process::exit(1);
+    }
+    if let Some(t) = cli.screenshot_time
+        && !(t >= 0.0 && t.is_finite())
+    {
+        eprintln!("Error: --screenshot-time must be non-negative, got {t}");
+        std::process::exit(1);
+    }
+
+    if let Some(path) = &cli.spec_path {
+        let spec = std::fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read {path}: {e}"))
+            .and_then(|json| ScenarioSpec::from_json(&json));
+        match spec {
+            Ok(spec) => cli.spec = Some(spec),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
     }
 
     let event_loop = EventLoop::new().expect("Failed to create event loop");
