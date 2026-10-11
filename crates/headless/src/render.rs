@@ -207,7 +207,9 @@ fn gaussian_blur(img: &mut [f32], n: usize, sigma: f32) {
 /// pixels' peak channel. Robust to a few saturated cores.
 pub fn auto_exposure(light: &[f32]) -> f32 {
     let mut lit: Vec<f32> = light
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(peak)
         .filter(|&l| l > 0.0)
         .collect();
@@ -219,7 +221,7 @@ pub fn auto_exposure(light: &[f32]) -> f32 {
     v.max(1e-6)
 }
 
-fn peak(c: &[f32]) -> f32 {
+fn peak(c: &[f32; 3]) -> f32 {
     c[0].max(c[1]).max(c[2])
 }
 
@@ -319,7 +321,7 @@ mod tests {
     fn splat_conserves_light() {
         let p = one_particle(0.1, -0.2, ParticleType::Default);
         let light = splat(&p, &[], View::Xy, &opts(64, false));
-        let total: f32 = light.chunks_exact(3).map(|c| c[2]).sum();
+        let total: f32 = light.as_chunks::<3>().0.iter().map(|c| c[2]).sum();
         assert!((total - 1.0).abs() < 1e-4, "blue channel sum {total}");
     }
 
