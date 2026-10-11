@@ -11,7 +11,7 @@ use web_sys::HtmlCanvasElement;
 use render_core::axes::AxesPipeline;
 use render_core::bloom::{self, BloomPipeline, DEPTH_FORMAT, HDR_FORMAT};
 use render_core::camera::OrbitalCamera;
-use render_core::color;
+use render_core::color::{self, ParticleStyle, ParticleStyler};
 use render_core::particles::ParticlePipeline;
 use render_core::tonemap::ToneMapPipeline;
 
@@ -131,8 +131,9 @@ struct AppState {
 
     // scratch buffers (reused across frames to avoid per-frame allocation)
     scratch_positions: Vec<[f32; 3]>,
-    scratch_masses: Vec<f32>,
-    cached_colors: Vec<[f32; 4]>,
+    styler: ParticleStyler,
+    cached_styles: Vec<ParticleStyle>,
+    show_dark_matter: bool,
 }
 
 #[derive(Default)]
@@ -413,12 +414,8 @@ pub async fn main() {
     let sim = create_sim(&scenario_name, particle_count, &algorithm_name);
     camera.desired_distance = camera_distance_for_scenario(&scenario_name);
 
-    // Pre-compute colors and masses
     let n = sim.particles.count;
-    let cached_colors: Vec<[f32; 4]> = sim.particles.particle_type.iter().enumerate()
-        .map(|(idx, &pt)| color::particle_color(pt, sim.particles.internal_energy[idx] as f32))
-        .collect();
-    let scratch_masses: Vec<f32> = sim.particles.mass.iter().map(|&m| m as f32).collect();
+    let show_dark_matter = read_checkbox_value(&document, "show-dm").unwrap_or(false);
 
     let state = Rc::new(RefCell::new(AppState {
         device,
@@ -452,9 +449,11 @@ pub async fn main() {
         touch: TouchState::default(),
         pending_resize: false,
         scratch_positions: Vec::with_capacity(n),
-        scratch_masses,
-        cached_colors,
+        styler: ParticleStyler::new(&[], show_dark_matter),
+        cached_styles: Vec::new(),
+        show_dark_matter,
     }));
+    refresh_sim_cache(&mut state.borrow_mut());
 
     APP.with(|app| *app.borrow_mut() = Some(state.clone()));
 
@@ -525,9 +524,10 @@ pub async fn main() {
                 if steps_taken > 0 && s.sim.sph_solver.is_some() {
                     let n = s.sim.particles.count;
                     for idx in 0..n {
-                        if s.sim.particles.particle_type[idx] == 4 {
-                            s.cached_colors[idx] = color::particle_color(
-                                4, s.sim.particles.internal_energy[idx] as f32
+                        if s.sim.particles.particle_type[idx] == color::types::GAS {
+                            s.cached_styles[idx] = s.styler.style(
+                                color::types::GAS,
+                                s.sim.particles.internal_energy[idx] as f32,
                             );
                         }
                     }
@@ -613,13 +613,19 @@ fn restart_spec(st: &mut AppState) {
     }
 }
 
-/// Refresh cached colors and masses after a scenario change.
+/// Refresh cached particle styles after a scenario or display change.
 fn refresh_sim_cache(s: &mut AppState) {
-    s.cached_colors = s.sim.particles.particle_type.iter().enumerate()
-        .map(|(idx, &pt)| color::particle_color(pt, s.sim.particles.internal_energy[idx] as f32))
-        .collect();
-    s.scratch_masses = s.sim.particles.mass.iter().map(|&m| m as f32).collect();
+    restyle(s);
     s.scratch_positions = Vec::with_capacity(s.sim.particles.count);
+}
+
+/// Recompute every particle's style (type-based; see `color::ParticleStyler`).
+fn restyle(s: &mut AppState) {
+    let p = &s.sim.particles;
+    s.styler = ParticleStyler::new(&p.particle_type, s.show_dark_matter);
+    s.cached_styles = p.particle_type.iter().zip(&p.internal_energy)
+        .map(|(&t, &u)| s.styler.style(t, u as f32))
+        .collect();
 }
 
 fn render_frame(s: &mut AppState) {
@@ -643,10 +649,10 @@ fn render_frame(s: &mut AppState) {
         ]);
     }
 
-    // Masses and colors are invariant within a run — precomputed at sim creation
+    // Styles are fixed within a run (gas colors aside) — precomputed at sim creation
     s.particle_pipeline.update_instances(
         &s.queue, &s.device,
-        &s.scratch_positions, &s.scratch_masses, &s.cached_colors,
+        &s.scratch_positions, &s.cached_styles,
     );
 
     let surface_tex = match s.surface.get_current_texture() {
@@ -1062,6 +1068,21 @@ fn setup_control_handlers(document: &web_sys::Document, state: &Rc<RefCell<AppSt
         cb.forget();
     }
 
+    // Dark-matter toggle (hidden by default: a telescope can't see it)
+    if let Some(el) = document.get_element_by_id("show-dm") {
+        let s = state.clone();
+        let cb = Closure::wrap(Box::new(move |_: web_sys::Event| {
+            let mut st = s.borrow_mut();
+            if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+                st.show_dark_matter = read_checkbox_value(&doc, "show-dm").unwrap_or(false);
+                restyle(&mut st);
+            }
+        }) as Box<dyn FnMut(_)>);
+        el.add_event_listener_with_callback("change", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+
     // Pause button
     if let Some(el) = document.get_element_by_id("pause-btn") {
         let s = state.clone();
@@ -1089,6 +1110,12 @@ fn read_range_value(doc: &web_sys::Document, id: &str) -> Option<i32> {
     doc.get_element_by_id(id)
         .and_then(|el| el.dyn_into::<web_sys::HtmlInputElement>().ok())
         .and_then(|input| input.value().parse().ok())
+}
+
+fn read_checkbox_value(doc: &web_sys::Document, id: &str) -> Option<bool> {
+    doc.get_element_by_id(id)
+        .and_then(|el| el.dyn_into::<web_sys::HtmlInputElement>().ok())
+        .map(|input| input.checked())
 }
 
 fn update_stats_dom(s: &AppState) {

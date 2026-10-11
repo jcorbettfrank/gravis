@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use winit::window::Window;
 
 use render_core::axes::AxesPipeline;
 use render_core::bloom::{self, BloomPipeline, DEPTH_FORMAT, HDR_FORMAT};
-use render_core::color;
+use render_core::color::{ParticleStyle, ParticleStyler};
 use render_core::gpu_types::CameraUniform;
 use render_core::particles::ParticlePipeline;
 use render_core::tonemap::ToneMapPipeline;
@@ -25,8 +27,13 @@ pub struct Renderer {
     egui_renderer: egui_wgpu::Renderer,
     egui_state: egui_winit::State,
     egui_ctx: egui::Context,
-    // Cached colors for current snapshot
-    cached_colors: Vec<[f32; 4]>,
+    // Latest snapshot's positions and styles, kept so a style change (the
+    // dark-matter toggle) can be re-uploaded while the sim is paused.
+    cached_positions: Vec<[f32; 3]>,
+    cached_types: Arc<Vec<u8>>,
+    cached_energies: Vec<f32>,
+    cached_styles: Vec<ParticleStyle>,
+    styled_with_dark_matter: bool,
 }
 
 impl Renderer {
@@ -96,7 +103,11 @@ impl Renderer {
             egui_renderer,
             egui_state,
             egui_ctx,
-            cached_colors: Vec::new(),
+            cached_positions: Vec::new(),
+            cached_types: Arc::new(Vec::new()),
+            cached_energies: Vec::new(),
+            cached_styles: Vec::new(),
+            styled_with_dark_matter: false,
         }
     }
 
@@ -140,19 +151,22 @@ impl Renderer {
             bytemuck::bytes_of(camera_uniform),
         );
 
-        // Update particle instances if we have new data
+        // Update particle instances on new data or a style change
+        let show_dark_matter = ui_state.show_dark_matter();
         if let Some(snap) = new_snapshot {
-            self.cached_colors.clear();
-            self.cached_colors.reserve(snap.particle_types.len());
-            for (idx, &pt) in snap.particle_types.iter().enumerate() {
-                self.cached_colors.push(color::particle_color(pt, snap.internal_energies[idx]));
-            }
+            self.cached_positions.clone_from(&snap.positions);
+            self.cached_types = Arc::clone(&snap.particle_types);
+            self.cached_energies.clone_from(&snap.internal_energies);
+        }
+        if new_snapshot.is_some() || show_dark_matter != self.styled_with_dark_matter {
+            let styler = ParticleStyler::new(&self.cached_types, show_dark_matter);
+            self.cached_styles = styler.style_all(&self.cached_types, &self.cached_energies);
+            self.styled_with_dark_matter = show_dark_matter;
             self.particle_pipeline.update_instances(
                 queue,
                 device,
-                &snap.positions,
-                &snap.masses,
-                &self.cached_colors,
+                &self.cached_positions,
+                &self.cached_styles,
             );
         }
 
