@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spec Playground — gravis</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            font: 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            color: #c0c0d0;
+        }
+        #simulation { width: 100vw; height: 100vh; display: block; touch-action: none; }
+        .panel {
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            bottom: 6px;
+            width: min(340px, calc(100% - 12px));
+            background: rgba(10, 10, 20, 0.88);
+            border: 1px solid #2a2a3a;
+            border-radius: 6px;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .panel.collapsed { bottom: auto; }
+        .panel.collapsed > :not(.row.top) { display: none; }
+        .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        button {
+            background: #2a2a4a;
+            color: #c0c0d0;
+            border: 1px solid #4a4a6a;
+            border-radius: 4px;
+            padding: 3px 8px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        button.active { border-color: #70a0ff; color: #fff; }
+        textarea {
+            flex: 1;
+            min-height: 120px;
+            resize: none;
+            background: #12121a;
+            color: #c0c0d0;
+            border: 1px solid #3a3a4a;
+            border-radius: 4px;
+            padding: 6px;
+            font: 11px 'SF Mono', 'Menlo', monospace;
+        }
+        label { display: flex; align-items: center; gap: 4px; }
+        input[type=range] { width: 90px; }
+        #status { overflow-wrap: anywhere; }
+        #status.ok { color: #70a0ff; }
+        #status.err { color: #ff6060; }
+        #geometry {
+            font: 11px 'SF Mono', 'Menlo', monospace;
+            color: #a0a0b8;
+            white-space: pre-wrap;
+            line-height: 1.4;
+        }
+        .overlay {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            background: rgba(10, 10, 20, 0.8);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font: 11px 'SF Mono', 'Menlo', monospace;
+            color: #808090;
+        }
+        .overlay span { color: #70a0ff; }
+        #no-webgpu {
+            display: none;
+            color: #ff6060;
+            padding: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="no-webgpu">WebGPU required (Chrome 113+, Edge 113+, Safari 18+)</div>
+    <canvas id="simulation"></canvas>
+
+    <div class="panel" id="panel">
+        <div class="row top">
+            <button data-preset="flyby" class="active">Tilted flyby</button>
+            <button data-preset="wideP">Wide prograde</button>
+            <button data-preset="wideR">Wide retrograde</button>
+            <button data-preset="merger">Minor merger</button>
+            <button data-preset="cluster">Cluster + BH</button>
+            <button id="collapse" title="Hide the panel">▾</button>
+        </div>
+        <textarea id="spec-json" spellcheck="false" aria-label="Scenario spec JSON"></textarea>
+        <div class="row">
+            <button id="run">Run spec</button>
+            <button id="pause-btn">Pause</button>
+            <label>N <input type="range" id="particle-count" min="1000" max="20000" step="500" value="1000"></label>
+            <label>speed <input type="range" id="speed" min="1" max="20" value="4"></label>
+        </div>
+        <div id="status">Loading…</div>
+        <div id="geometry"></div>
+    </div>
+
+    <div class="overlay">
+        t = <span id="stat-time">—</span> ·
+        <span id="stat-fps">—</span> fps ·
+        <span id="stat-particles">—</span> particles
+    </div>
+
+    <!-- Hidden controls read by the WASM app at startup -->
+    <select id="scenario" style="display:none"><option value="two-body" selected></option></select>
+    <select id="algorithm" style="display:none"><option value="barnes-hut" selected></option></select>
+    <span id="stat-energy" style="display:none"></span>
+    <span id="stat-virial" style="display:none"></span>
+
+    <script>
+        if (!navigator.gpu) {
+            document.getElementById('no-webgpu').style.display = 'block';
+            document.getElementById('simulation').style.display = 'none';
+        }
+    </script>
+    <script type="module">
+        import init, { load_spec } from './pkg/web_app.js';
+
+        // Copies of specs/*.json, plus the wide-orbit pair from the book's
+        // prograde/retrograde measurement (chapter 9).
+        const flyby = {
+            name: 'Tilted Flyby',
+            components: [
+                { type: 'disk_galaxy', particles: 6000,
+                  position: [-7.5, -1, 0], velocity: [0.25, 0, 0] },
+                { type: 'disk_galaxy', particles: 6000, spin_axis: [0, 0.866, 0.5],
+                  position: [7.5, 1, 0], velocity: [-0.25, 0, 0] },
+            ],
+        };
+        const PRESETS = {
+            flyby,
+            wideP: {
+                name: 'Wide Prograde Encounter',
+                components: [
+                    { type: 'disk_galaxy', particles: 6000,
+                      position: [-7.5, -4, 0], velocity: [0.7, 0, 0] },
+                    { type: 'disk_galaxy', particles: 6000, spin_axis: [0, 0.866, 0.5],
+                      position: [7.5, 4, 0], velocity: [-0.7, 0, 0] },
+                ],
+            },
+            wideR: {
+                name: 'Wide Retrograde Encounter',
+                components: [
+                    { type: 'disk_galaxy', particles: 6000, spin_axis: [0, 0, -1],
+                      position: [-7.5, -4, 0], velocity: [0.7, 0, 0] },
+                    { type: 'disk_galaxy', particles: 6000, spin_axis: [0, 0.866, 0.5],
+                      position: [7.5, 4, 0], velocity: [-0.7, 0, 0] },
+                ],
+            },
+            merger: {
+                name: 'Minor Merger',
+                components: [
+                    { type: 'disk_galaxy', particles: 8000 },
+                    { type: 'disk_galaxy', particles: 2000,
+                      position: [9, 0, 3], velocity: [-0.35, 0.4, 0],
+                      spin_axis: [1, 0, 1], baryon_mass: 0.2,
+                      disk_scale_radius: 0.6, disk_scale_height: 0.06,
+                      bulge_scale_radius: 0.18, halo_scale_radius: 3,
+                      disk_max_radius: 3.6, halo_max_radius: 18 },
+                ],
+            },
+            cluster: {
+                name: 'Cluster and Black Hole',
+                components: [
+                    { type: 'point_mass', mass: 1 },
+                    { type: 'plummer', particles: 3000, mass: 0.001, scale_radius: 0.05,
+                      position: [3, 0, 0], velocity: [0, 0.3, 0] },
+                ],
+            },
+        };
+
+        const textarea = document.getElementById('spec-json');
+        const status = document.getElementById('status');
+        const geometry = document.getElementById('geometry');
+        const slider = document.getElementById('particle-count');
+
+        // ----------------------------------------------------------------
+        // Encounter geometry, computed the way sim-core's spec.rs does:
+        // the two most massive components as a Kepler two-body problem.
+        // ----------------------------------------------------------------
+        const sub = (a, b) => a.map((x, i) => x - b[i]);
+        const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+        const norm = (a) => Math.sqrt(dot(a, a));
+
+        function componentMass(c) {
+            if (c.type === 'disk_galaxy') {
+                return (c.baryon_mass ?? 1) * (1 + (c.halo_mass_ratio ?? 10));
+            }
+            return c.mass ?? 1;
+        }
+
+        function describeGeometry(spec) {
+            const cs = (spec.components ?? []).map((c) => ({
+                ...c,
+                m: componentMass(c),
+                r: c.position ?? [0, 0, 0],
+                v: c.velocity ?? [0, 0, 0],
+            }));
+            if (cs.length < 2) return 'One component: no encounter to describe.';
+            const [a, b] = [...cs].sort((x, y) => y.m - x.m);
+            const r = sub(b.r, a.r), v = sub(b.v, a.v);
+            const mu = a.m + b.m, d = norm(r), speed = norm(v);
+            const energy = 0.5 * speed * speed - mu / d;
+            const h = cross(r, v), h2 = dot(h, h);
+            const e = Math.sqrt(Math.max(0, 1 + 2 * energy * h2 / (mu * mu)));
+            const q = Math.min(h2 / (mu * (1 + e)), d);
+            const vEsc = Math.sqrt(2 * mu / d);
+            const lines = [
+                `${a.type} (M=${a.m.toFixed(3)}) vs ${b.type} (M=${b.m.toFixed(3)})`,
+                `separation ${d.toFixed(2)}, relative speed ${speed.toFixed(3)}`,
+                `escape speed ${vEsc.toFixed(3)} → ${speed < vEsc ? 'bound' : 'unbound'}, e = ${e.toFixed(3)}`,
+                `point-mass pericenter ${q.toFixed(3)}`,
+            ];
+            if (h2 > 0) {
+                const L = h.map((x) => x / Math.sqrt(h2));
+                lines.push(`orbital L̂ = [${L.map((x) => x.toFixed(2)).join(', ')}]`);
+                cs.forEach((c, i) => {
+                    if (c.type !== 'disk_galaxy') return;
+                    const s = c.spin_axis ?? [0, 0, 1];
+                    const cos = dot(s, L) / norm(s);
+                    const deg = Math.acos(Math.max(-1, Math.min(1, cos))) * 180 / Math.PI;
+                    const word = deg < 30 ? 'prograde' : deg > 150 ? 'retrograde' : deg > 60 && deg < 120 ? 'polar-ish' : 'inclined';
+                    lines.push(`disk ${i}: spin vs L̂ = ${deg.toFixed(0)}° (${word})`);
+                });
+            } else {
+                lines.push('radial plunge: no orbital plane');
+            }
+            return lines.join('\n');
+        }
+
+        function showPreset(name) {
+            textarea.value = JSON.stringify(PRESETS[name], null, 2);
+            document.querySelectorAll('[data-preset]').forEach((b) =>
+                b.classList.toggle('active', b.dataset.preset === name));
+        }
+
+        function run() {
+            let spec;
+            try {
+                spec = JSON.parse(textarea.value);
+            } catch (e) {
+                status.textContent = `JSON syntax: ${e.message}`;
+                status.className = 'err';
+                return false;
+            }
+            try {
+                const info = JSON.parse(load_spec(textarea.value));
+                slider.value = info.particles;
+                status.textContent = `${info.name}: ${info.particles} particles, ` +
+                    `dt ${info.dt.toPrecision(3)}, softening ${info.softening.toPrecision(3)}` +
+                    (info.rescaled_from ? ` (rescaled from ${info.rescaled_from})` : '');
+                status.className = 'ok';
+            } catch (e) {
+                const msg = e.message ?? String(e);
+                if (msg.includes('still starting')) throw e;
+                status.textContent = msg;
+                status.className = 'err';
+                geometry.textContent = '';
+                return false;
+            }
+            geometry.textContent = describeGeometry(spec);
+            return true;
+        }
+
+        document.querySelectorAll('[data-preset]').forEach((b) =>
+            b.addEventListener('click', () => { showPreset(b.dataset.preset); run(); }));
+        document.getElementById('run').addEventListener('click', run);
+        document.getElementById('collapse').addEventListener('click', (ev) => {
+            const panel = document.getElementById('panel');
+            panel.classList.toggle('collapsed');
+            ev.target.textContent = panel.classList.contains('collapsed') ? '▸' : '▾';
+        });
+
+        showPreset('flyby');
+        await init();
+        // The WASM entry point finishes setting up asynchronously (GPU
+        // adapter, device); retry until load_spec stops saying so.
+        const tryFirstRun = () => {
+            try { run(); } catch { setTimeout(tryFirstRun, 100); }
+        };
+        if (navigator.gpu) tryFirstRun();
+    </script>
+</body>
+</html>
