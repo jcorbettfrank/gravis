@@ -8,3 +8,6 @@ license.workspace = true
 wgpu = "27"
 bytemuck = { version = "1", features = ["derive"] }
 glam = "0.29"
+
+[dev-dependencies]
+sim-core = { path = "../sim-core" }

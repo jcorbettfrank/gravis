@@ -15,7 +15,6 @@ use crate::Cli;
 /// Lightweight snapshot for rendering — positions already converted to f32.
 pub struct RenderSnapshot {
     pub positions: Vec<[f32; 3]>,
-    pub masses: Vec<f32>,
     pub particle_types: Arc<Vec<u8>>,
     /// Internal energy per particle (f32, for gas temperature coloring).
     pub internal_energies: Vec<f32>,
@@ -267,7 +266,6 @@ fn build_render_snapshot_with_diag(
 ) -> RenderSnapshot {
     let n = particles.count;
     let mut positions = Vec::with_capacity(n);
-    let mut masses = Vec::with_capacity(n);
     let mut internal_energies = Vec::with_capacity(n);
 
     for i in 0..n {
@@ -276,13 +274,11 @@ fn build_render_snapshot_with_diag(
             particles.y[i] as f32,
             particles.z[i] as f32,
         ]);
-        masses.push(particles.mass[i] as f32);
         internal_energies.push(particles.internal_energy[i] as f32);
     }
 
     RenderSnapshot {
         positions,
-        masses,
         particle_types: Arc::clone(particle_types),
         internal_energies,
         center_of_mass: [

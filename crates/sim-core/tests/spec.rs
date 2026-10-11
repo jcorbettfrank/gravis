@@ -259,3 +259,72 @@ fn gas_cloud_matches_evrard_collapse() {
     assert_eq!(a.smoothing_length, b.smoothing_length);
     assert_eq!(spec.suggested_softening(), evrard.suggested_softening());
 }
+
+/// Total mass and particle count of each particle type, indexed by type id.
+fn mass_by_type(p: &Particles) -> [(f64, usize); 4] {
+    let mut out = [(0.0, 0); 4];
+    for i in 0..p.count {
+        let t = p.particle_type[i] as usize;
+        out[t].0 += p.mass[i];
+        out[t].1 += 1;
+    }
+    out
+}
+
+#[test]
+fn star_particle_fraction_splits_particles_not_mass() {
+    let disk = ParticleType::DiskStar as usize;
+    let bulge = ParticleType::BulgeStar as usize;
+    let dm = ParticleType::DarkMatter as usize;
+
+    // Default: half the particles are stars, shared by disk and bulge by mass
+    let spec = parse(r#"{"components": [{"type": "disk_galaxy", "particles": 10000}]}"#);
+    let p = spec.generate();
+    let by_type = mass_by_type(&p);
+    let star_fraction = sim_core::spec::DEFAULT_STAR_PARTICLE_FRACTION;
+    let n_star = (10000.0 * star_fraction).round() as usize;
+    assert_eq!(by_type[disk].1 + by_type[bulge].1, n_star);
+    assert_eq!(by_type[dm].1, 10000 - n_star);
+    // Component masses are unchanged by the split
+    for (t, expected) in [(disk, 0.7), (bulge, 0.3), (dm, 10.0)] {
+        assert!((by_type[t].0 - expected).abs() < 1e-9, "type {t}: {}", by_type[t].0);
+    }
+
+    // null: equal-mass particles, so the halo gets ~91% of them
+    let equal = parse(
+        r#"{"components": [{"type": "disk_galaxy", "particles": 11000, "star_particle_fraction": null}]}"#,
+    );
+    let p = equal.generate();
+    let m0 = p.mass[0];
+    assert!(p.mass.iter().all(|&m| (m - m0).abs() < 1e-12 * m0));
+    assert_eq!(mass_by_type(&p)[dm].1, 10000);
+    assert_eq!(parse(&equal.to_json_pretty()), equal);
+}
+
+#[test]
+fn star_particle_fraction_keeps_a_halo_particle() {
+    // All particles as stars would drop the halo's mass; one is kept for it
+    let spec = parse(
+        r#"{"components": [{"type": "disk_galaxy", "particles": 100, "star_particle_fraction": 1}]}"#,
+    );
+    let by_type = mass_by_type(&spec.generate());
+    assert_eq!(by_type[ParticleType::DarkMatter as usize], (10.0, 1));
+
+    for bad in ["0", "-0.5", "1.5"] {
+        let e = parse_err(&format!(
+            r#"{{"components": [{{"type": "disk_galaxy", "particles": 9, "star_particle_fraction": {bad}}}]}}"#
+        ));
+        assert!(e.contains("star_particle_fraction must be in (0, 1]"), "{e}");
+    }
+}
+
+#[test]
+fn galaxy_model_without_star_fraction_splits_by_mass() {
+    use sim_core::scenarios::galaxy_collision::{GalaxyCollision, GalaxyModel};
+    // The built-in collision keeps equal-mass particles (its output is unchanged)
+    assert_eq!(GalaxyCollision::default().model().star_particle_fraction, None);
+    assert_eq!(GalaxyModel::default().particle_split(11000), (700, 300, 10000));
+    let split = GalaxyModel { star_particle_fraction: Some(0.25), ..Default::default() }
+        .particle_split(1000);
+    assert_eq!(split, (175, 75, 750));
+}

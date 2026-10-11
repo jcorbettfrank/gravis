@@ -19,10 +19,12 @@ pub struct UiState {
     potential_energy: f64,
     virial_ratio: f64,
     algorithm: String,
+    show_dark_matter: bool,
+    has_dark_matter: bool,
 }
 
 impl UiState {
-    pub fn new(initial_speed: f64, algorithm: String) -> Self {
+    pub fn new(initial_speed: f64, algorithm: String, show_dark_matter: bool) -> Self {
         Self {
             fps_history: VecDeque::with_capacity(FPS_HISTORY_CAP),
             energy_history: VecDeque::with_capacity(ENERGY_HISTORY_CAP),
@@ -37,6 +39,8 @@ impl UiState {
             potential_energy: 0.0,
             virial_ratio: 0.0,
             algorithm,
+            show_dark_matter,
+            has_dark_matter: false,
         }
     }
 
@@ -55,6 +59,9 @@ impl UiState {
         self.kinetic_energy = snap.kinetic_energy;
         self.potential_energy = snap.potential_energy;
         self.virial_ratio = snap.virial_ratio;
+        self.has_dark_matter = snap
+            .particle_types
+            .contains(&render_core::color::types::DARK_MATTER);
 
         if self.initial_energy.is_none() && snap.total_energy != 0.0 {
             self.initial_energy = Some(snap.total_energy);
@@ -73,6 +80,14 @@ impl UiState {
 
     pub fn paused(&self) -> bool {
         self.paused
+    }
+
+    pub fn show_dark_matter(&self) -> bool {
+        self.show_dark_matter
+    }
+
+    pub fn toggle_dark_matter(&mut self) {
+        self.show_dark_matter = !self.show_dark_matter;
     }
 
     fn avg_fps(&self) -> f32 {
@@ -128,6 +143,11 @@ impl UiState {
                     .clicked()
                 {
                     self.paused = !self.paused;
+                }
+
+                // Dark matter is invisible to a telescope; show it on request
+                if self.has_dark_matter {
+                    ui.checkbox(&mut self.show_dark_matter, "Show dark matter (D)");
                 }
 
                 ui.separator();
