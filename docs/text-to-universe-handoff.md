@@ -69,6 +69,9 @@ same row share files; run those in sequence.
 | E | **Step 2: `/universe` skill.** Description → spec → headless run → read the JSON diagnostics and frames → revise. Include encounter-design guidance from `specs/README.md`. | `.claude/skills/universe/` (new) | Depends on D for visuals in the cloud. It can start with diagnostics only. |
 | F | **Book chapter on specs**: the format, derived defaults, Toomre geometry, with live demos. | `book/src/` (new chapter), `SUMMARY.md` | Independent. Follow the milestone tag conventions in `CLAUDE.md`. |
 
+Workstream E landed as `.claude/skills/universe/` ([ADR 013](adr/013-universe-skill.md)); its
+worked example is the place to start for step 3.
+
 Later: step 3 (the public page) once E works, and the sim-time-dependent view
 radius (the camera follows the expanding debris).
 

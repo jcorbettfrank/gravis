@@ -13,6 +13,7 @@ Gravitational N-body simulation in Rust, targeting Apple M5 Pro.
 - **`crates/web-app/`** — browser WASM demo (wasm-pack + web-sys)
 - **`book/`** — mdBook lessons (physics + code walkthroughs)
 - **`specs/`** — JSON scenario specs; format reference in `specs/README.md`
+- **`.claude/skills/universe/`** — `/universe` skill: description → spec → headless run → check → revise
 - **`artifacts/`** — generated benchmarks, snapshots, plots, media
 
 ## Conventions

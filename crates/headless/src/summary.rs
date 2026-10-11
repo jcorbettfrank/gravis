@@ -143,6 +143,156 @@ pub struct Encounter {
     pub min_separation: f64,
     pub time_of_min_separation: f64,
     pub final_separation: f64,
+    /// Each completed close passage (a separation minimum the pair has
+    /// since moved apart from), in order. A minimum still in progress when
+    /// the run ends, such as a final merger, is only in `min_separation`.
+    pub pericenters: Vec<Passage>,
+    /// Separation over the run as `[time, separation]`, evenly thinned to
+    /// at most `HISTORY_LEN` samples: shows the infall without extra frames.
+    pub history: Vec<[f64; 2]>,
+    #[serde(skip)]
+    tracker: PassageTracker,
+    #[serde(skip)]
+    stride: u64,
+    #[serde(skip)]
+    samples_seen: u64,
+    #[serde(skip)]
+    last_time: f64,
+}
+
+#[derive(Serialize, Clone, Copy, Debug, PartialEq)]
+pub struct Passage {
+    pub time: f64,
+    pub separation: f64,
+}
+
+/// Finds separation minima with hysteresis, so jitter in the tracked centers
+/// (a merged remnant sloshing) isn't counted as passages: a minimum counts
+/// once the separation climbs `margin` above it, and the next approach
+/// starts once it falls `margin` below the following maximum.
+#[derive(Clone, Default)]
+struct PassageTracker {
+    margin: f64,
+    approaching: bool,
+    /// Lowest point of the current approach, or highest of the current recession.
+    extreme: Passage,
+}
+
+impl Default for Passage {
+    fn default() -> Self {
+        Passage {
+            time: 0.0,
+            separation: f64::INFINITY,
+        }
+    }
+}
+
+/// Hysteresis as a share of the initial separation.
+const PASSAGE_MARGIN: f64 = 0.1;
+
+impl PassageTracker {
+    fn new(initial_separation: f64) -> Self {
+        PassageTracker {
+            margin: PASSAGE_MARGIN * initial_separation,
+            approaching: true,
+            extreme: Passage {
+                time: 0.0,
+                separation: initial_separation,
+            },
+        }
+    }
+
+    /// The completed passage, if this sample confirms one.
+    fn observe(&mut self, separation: f64, time: f64) -> Option<Passage> {
+        let now = Passage { time, separation };
+        if self.approaching {
+            if separation < self.extreme.separation {
+                self.extreme = now;
+            } else if separation > self.extreme.separation + self.margin {
+                let passage = self.extreme;
+                self.approaching = false;
+                self.extreme = now;
+                return Some(passage);
+            }
+        } else if separation > self.extreme.separation {
+            self.extreme = now;
+        } else if separation < self.extreme.separation - self.margin {
+            self.approaching = true;
+            self.extreme = now;
+        }
+        None
+    }
+}
+
+/// Cap on recorded passages per pair, so a long bound orbit can't bloat the
+/// summary.
+const MAX_PASSAGES: usize = 32;
+
+/// Separation history keeps between `HISTORY_LEN / 2` and `HISTORY_LEN`
+/// samples (plus the latest one).
+const HISTORY_LEN: usize = 128;
+
+impl Encounter {
+    fn new(a: usize, b: usize, d: f64) -> Self {
+        Encounter {
+            a,
+            b,
+            initial_separation: d,
+            min_separation: d,
+            time_of_min_separation: 0.0,
+            final_separation: d,
+            pericenters: Vec::new(),
+            history: vec![[0.0, d]],
+            tracker: PassageTracker::new(d),
+            stride: 1,
+            samples_seen: 0,
+            last_time: 0.0,
+        }
+    }
+
+    /// Keep every `stride`-th sample; when full, drop every other one and
+    /// double the stride, so the samples stay evenly spaced in steps
+    /// whatever the run length.
+    fn sample(&mut self, d: f64, time: f64) {
+        self.samples_seen += 1;
+        if !self.samples_seen.is_multiple_of(self.stride) {
+            return;
+        }
+        if self.history.len() == HISTORY_LEN {
+            let mut k = 0;
+            self.history.retain(|_| {
+                k += 1;
+                k % 2 == 1
+            });
+            self.stride *= 2;
+            if !self.samples_seen.is_multiple_of(self.stride) {
+                return;
+            }
+        }
+        self.history.push([time, d]);
+    }
+
+    /// Append the latest sample if thinning skipped it.
+    fn finish(&mut self) {
+        if self.history.last().is_some_and(|h| h[0] < self.last_time) {
+            self.history.push([self.last_time, self.final_separation]);
+        }
+    }
+
+    fn observe(&mut self, d: f64, time: f64) {
+        self.final_separation = d;
+        self.last_time = time;
+        self.sample(d, time);
+        if d < self.min_separation {
+            self.min_separation = d;
+            self.time_of_min_separation = time;
+        }
+        if let Some(p) = self.tracker.observe(d, time)
+            && self.pericenters.len() < MAX_PASSAGES
+        {
+            self.pericenters.push(p);
+        }
+    }
 }
 
 pub struct EncounterLog {
@@ -155,14 +305,7 @@ impl EncounterLog {
         for a in 0..tracked.len() {
             for b in a + 1..tracked.len() {
                 let d = dist(tracked[a].center, tracked[b].center);
-                encounters.push(Encounter {
-                    a,
-                    b,
-                    initial_separation: d,
-                    min_separation: d,
-                    time_of_min_separation: 0.0,
-                    final_separation: d,
-                });
+                encounters.push(Encounter::new(a, b, d));
             }
         }
         EncounterLog { encounters }
@@ -171,12 +314,16 @@ impl EncounterLog {
     pub fn record(&mut self, tracked: &[Tracked], time: f64) {
         for e in &mut self.encounters {
             let d = dist(tracked[e.a].center, tracked[e.b].center);
-            e.final_separation = d;
-            if d < e.min_separation {
-                e.min_separation = d;
-                e.time_of_min_separation = time;
-            }
+            e.observe(d, time);
         }
+    }
+
+    /// The encounters, with each history ending at the latest sample.
+    pub fn finish(mut self) -> Vec<Encounter> {
+        for e in &mut self.encounters {
+            e.finish();
+        }
+        self.encounters
     }
 }
 
@@ -410,5 +557,54 @@ mod tests {
         );
         let s = t.state(&p, 0);
         assert!((s.velocity[0] - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn passages_need_a_real_recession() {
+        // Approach to 1 at t=2, recede to 8, approach to 0.5 at t=6, then
+        // jitter around 0.5 (a merged remnant): two passages, not more.
+        let mut e = Encounter::new(0, 1, 10.0);
+        let seps = [6.0, 1.0, 4.0, 8.0, 5.0, 0.5, 2.0, 0.6, 0.4, 0.7, 0.45, 0.8];
+        for (k, &d) in seps.iter().enumerate() {
+            e.observe(d, (k + 1) as f64);
+        }
+        assert_eq!(
+            e.pericenters,
+            vec![
+                Passage {
+                    time: 2.0,
+                    separation: 1.0
+                },
+                Passage {
+                    time: 6.0,
+                    separation: 0.5
+                },
+            ]
+        );
+        assert_eq!(e.min_separation, 0.4);
+        assert_eq!(e.final_separation, 0.8);
+    }
+
+    #[test]
+    fn history_thins_evenly_and_ends_at_the_last_sample() {
+        let mut e = Encounter::new(0, 1, 10.0);
+        let steps = 1000;
+        for k in 1..=steps {
+            e.observe(10.0 - k as f64 * 0.001, k as f64);
+        }
+        e.finish();
+        let h = &e.history;
+        assert!(
+            h.len() >= HISTORY_LEN / 2 && h.len() <= HISTORY_LEN + 1,
+            "{}",
+            h.len()
+        );
+        assert_eq!(h[0], [0.0, 10.0]);
+        assert_eq!(h.last().unwrap()[0], steps as f64);
+        // Evenly spaced apart from the appended last sample
+        let gap = h[1][0] - h[0][0];
+        for w in h[..h.len() - 1].windows(2) {
+            assert_eq!(w[1][0] - w[0][0], gap);
+        }
     }
 }

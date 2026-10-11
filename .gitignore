@@ -3,5 +3,6 @@ artifacts/snapshots/
 artifacts/plots/
 artifacts/media/
 artifacts/book/
+artifacts/universe/
 # Keep benchmark CSVs for the book
 !artifacts/benchmarks/.gitkeep

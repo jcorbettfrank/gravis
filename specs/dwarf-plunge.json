@@ -1,0 +1,26 @@
+{
+  "name": "Dwarf Plunge",
+  "description": "A dwarf galaxy plunges through a Milky Way disk. Written with the /universe skill: the dwarf (a fifth of the mass) falls in on a parabolic orbit, crosses the disk face-on near its center, and leaves trailing a stream while spiral and ring-like waves spread through the disk.",
+  "components": [
+    {
+      "type": "disk_galaxy",
+      "particles": 8000,
+      "spin_axis": [1, 0, 0],
+      "position": [-2, 0, 0],
+      "velocity": [0.246174, -0.022567, 0]
+    },
+    {
+      "type": "disk_galaxy",
+      "particles": 2000,
+      "position": [10, 0, 0],
+      "velocity": [-1.230872, 0.112834, 0],
+      "baryon_mass": 0.2,
+      "disk_scale_radius": 0.585,
+      "disk_scale_height": 0.058,
+      "bulge_scale_radius": 0.175,
+      "halo_scale_radius": 2.92,
+      "disk_max_radius": 3.5,
+      "halo_max_radius": 17.5
+    }
+  ]
+}
