@@ -1,3 +1,6 @@
+mod render;
+mod summary;
+
 use clap::Parser;
 use sim_core::barnes_hut::BarnesHut;
 use sim_core::diagnostics;
@@ -7,8 +10,10 @@ use sim_core::scenario_builder::{self, ScenarioConfig};
 use sim_core::snapshot::Snapshot;
 use sim_core::spec::ScenarioSpec;
 use sim_core::sph::solver::SphSolver;
+use render::{RenderOptions, View};
 use std::fs::{self, File};
 use std::io::BufWriter;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 #[derive(Parser)]
@@ -27,9 +32,10 @@ struct Cli {
     #[arg(short = 'n', long)]
     particles: Option<usize>,
 
-    /// Number of timesteps to run
-    #[arg(long, default_value_t = 1000)]
-    steps: u64,
+    /// Number of timesteps to run [default: 1000, or until the last
+    /// --render-at time]
+    #[arg(long)]
+    steps: Option<u64>,
 
     /// Timestep size (overrides scenario suggestion)
     #[arg(long)]
@@ -70,6 +76,43 @@ struct Cli {
     /// Barnes-Hut opening angle (lower = more accurate, higher = faster)
     #[arg(long, default_value_t = 0.5)]
     theta: f64,
+
+    /// Render PNG frames at these sim times, e.g. 0,25,50 (each at the
+    /// nearest step). Writes a summary.json beside them.
+    #[arg(long, value_delimiter = ',')]
+    render_at: Vec<f64>,
+
+    /// Directory for rendered frames
+    #[arg(long, default_value = "artifacts/renders")]
+    render_dir: String,
+
+    /// Frame width and height in pixels
+    #[arg(long, default_value_t = 800)]
+    render_size: usize,
+
+    /// Projection planes, comma-separated: xy (face-on to the z axis), xz, yz
+    #[arg(long, value_delimiter = ',', default_value = "xy")]
+    render_view: Vec<String>,
+
+    /// Half-width of the field of view [default: the spec's view_radius, or
+    /// a radius holding 90% of the visible particles]
+    #[arg(long)]
+    render_radius: Option<f64>,
+
+    /// Show dark matter (faint) in rendered frames
+    #[arg(long)]
+    render_dm: bool,
+
+    /// Expose each frame on its own instead of holding the first frame's
+    /// exposure (shows faint late structure, but brightness is no longer
+    /// comparable between frames)
+    #[arg(long)]
+    render_autoexpose: bool,
+
+    /// Write a JSON run summary here [default with --render-at:
+    /// <render-dir>/summary.json]
+    #[arg(long)]
+    summary_json: Option<String>,
 }
 
 fn main() {
@@ -98,14 +141,54 @@ fn main() {
         eprintln!("Error: --softening must be non-negative, got {s}");
         std::process::exit(1);
     }
+    let mut render_times = cli.render_at.clone();
+    if let Some(t) = render_times.iter().find(|t| !t.is_finite() || **t < 0.0) {
+        eprintln!("Error: --render-at times must be non-negative, got {t}");
+        std::process::exit(1);
+    }
+    render_times.sort_by(f64::total_cmp);
+    render_times.dedup();
+    let views: Vec<View> = cli
+        .render_view
+        .iter()
+        .map(|v| View::parse(v))
+        .collect::<Result<_, _>>()
+        .unwrap_or_else(|e| {
+            eprintln!("Error: --render-view: {e}");
+            std::process::exit(1);
+        });
+    if !(16..=8192).contains(&cli.render_size) {
+        eprintln!("Error: --render-size must be in [16, 8192], got {}", cli.render_size);
+        std::process::exit(1);
+    }
+    if let Some(r) = cli.render_radius
+        && !(r.is_finite() && r > 0.0)
+    {
+        eprintln!("Error: --render-radius must be positive, got {r}");
+        std::process::exit(1);
+    }
+    let rendering = !render_times.is_empty();
+    let summary_path: Option<PathBuf> = cli
+        .summary_json
+        .as_ref()
+        .map(PathBuf::from)
+        .or_else(|| rendering.then(|| Path::new(&cli.render_dir).join("summary.json")));
 
-    // Build scenario
+    // Build scenario. Keep the spec as built (after any rescale): its
+    // components map to particle index ranges for tracking and rendering.
+    let mut built_spec: Option<ScenarioSpec> = None;
     let built = match &cli.spec {
         Some(path) => fs::read_to_string(path)
             .map_err(|e| format!("Failed to read {path}: {e}"))
             .and_then(|json| ScenarioSpec::from_json(&json))
             .and_then(|spec| {
-                scenario_builder::build_spec(&spec, cli.particles, cli.dt, cli.softening)
+                let spec = match cli.particles {
+                    Some(n) => spec.with_particle_budget(n),
+                    None => spec,
+                };
+                let built = scenario_builder::build_spec(&spec, None, cli.dt, cli.softening);
+                built_spec = Some(spec);
+                built
             }),
         None => {
             let config = ScenarioConfig {
@@ -144,7 +227,11 @@ fn main() {
     if cli.algorithm == "barnes-hut" {
         eprintln!("Theta:      {}", cli.theta);
     }
-    eprintln!("Steps:      {}", cli.steps);
+    match (cli.steps, render_times.last()) {
+        (Some(steps), _) => eprintln!("Steps:      {steps}"),
+        (None, Some(t)) => eprintln!("Run until:  t = {t}"),
+        (None, None) => eprintln!("Steps:      1000"),
+    }
     eprintln!("dt:         {dt:.6e}");
     eprintln!("Softening:  {softening:.6e}");
     eprintln!();
@@ -173,7 +260,7 @@ fn main() {
     // Record initial diagnostics
     // Use fast (O(N)) diagnostics when the O(N²) potential energy calculation
     // is not needed (no diagnostics output requested).
-    let use_full_diag = cli.diag_interval > 0 || cli.diag_csv.is_some();
+    let use_full_diag = cli.diag_interval > 0 || cli.diag_csv.is_some() || summary_path.is_some();
     let initial_diag = if use_full_diag {
         diagnostics::compute(&particles, softening, 0.0, 0)
     } else {
@@ -189,12 +276,88 @@ fn main() {
         writeln!(w, "{}", initial_diag.to_csv_row()).unwrap();
     }
 
+    // Component tracking, frames, and summary
+    let mut tracked = match &built_spec {
+        Some(spec) => summary::from_spec(&particles, spec),
+        None => summary::whole(&particles, &scenario_name),
+    };
+    let mut encounters = summary::EncounterLog::new(&tracked);
+    let track = summary_path.is_some();
+    let markers = summary::point_masses(&particles, built_spec.as_ref());
+    let render_opts = RenderOptions {
+        size: cli.render_size,
+        radius: cli
+            .render_radius
+            .or_else(|| built_spec.as_ref().map(ScenarioSpec::view_radius))
+            .unwrap_or_else(|| visible_radius(&particles, 0.9) * 1.2),
+        show_dark_matter: cli.render_dm,
+    };
+    if rendering {
+        fs::create_dir_all(&cli.render_dir).expect("Failed to create render directory");
+        eprintln!("Rendering:  t = {render_times:?} -> {}/", cli.render_dir);
+    }
+    let mut exposure: Vec<Option<f32>> = vec![None; views.len()];
+    let mut frames: Vec<summary::Frame> = Vec::new();
+    let mut next_render = 0;
+    let mut max_drift: f64 = 0.0;
+    let mut note_drift = |d: &diagnostics::Diagnostics| {
+        let drift = ((d.total_energy - initial_diag.total_energy) / initial_diag.total_energy.abs()).abs();
+        if drift.is_finite() {
+            max_drift = max_drift.max(drift);
+        }
+    };
+    let mut capture = |particles: &sim_core::particle::Particles,
+                       tracked: &[summary::Tracked],
+                       time: f64,
+                       step: u64| {
+        let diag = diagnostics::compute(particles, softening, time, step);
+        let mut images = Vec::new();
+        let mut exposures = Vec::new();
+        for (v, view) in views.iter().enumerate() {
+            let light = render::splat(particles, &markers, *view, &render_opts);
+            let exp = if cli.render_autoexpose {
+                render::auto_exposure(&light)
+            } else {
+                *exposure[v].get_or_insert_with(|| render::auto_exposure(&light))
+            };
+            exposures.push(exp);
+            let mut img = render::tone_map(&light, render_opts.size, exp);
+            render::draw_markers(&mut img, particles, &markers, *view, render_opts.radius);
+            let path = Path::new(&cli.render_dir).join(format!("t{time:07.2}_{}.png", view.name()));
+            img.write_png(&path).unwrap_or_else(|e| {
+                eprintln!("Failed to write frame: {e}");
+                std::process::exit(1);
+            });
+            images.push(path.display().to_string());
+        }
+        eprintln!("Frame:      t={time:.4}  step={step}  {}", images.join(" "));
+        let frame = summary::Frame {
+            time,
+            step,
+            images,
+            exposure: exposures,
+            energy: summary::Energetics::new(&diag, initial_diag.total_energy),
+            components: tracked.iter().enumerate().map(|(i, t)| t.state(particles, i)).collect(),
+        };
+        (frame, diag)
+    };
+    if rendering && render_times[0] <= 0.5 * dt {
+        let (frame, _) = capture(&particles, &tracked, 0.0, 0);
+        frames.push(frame);
+        next_render = 1;
+    }
+
     // Main simulation loop
     let wall_start = Instant::now();
     let mut sim_time = 0.0;
     let mut current_dt = dt;
+    let max_steps = cli.steps.unwrap_or(if rendering { u64::MAX } else { 1000 });
+    let mut steps_run = 0;
 
-    for step in 1..=cli.steps {
+    for step in 1..=max_steps {
+        if cli.steps.is_none() && rendering && next_render == render_times.len() {
+            break;
+        }
         let step_dt = current_dt;
         if let Some(sph) = &mut sph_solver {
             let dt_next = sim_core::sph::solver::step_with_sph(
@@ -205,10 +368,27 @@ fn main() {
             integrator.step(&mut particles, gravity.as_ref(), current_dt);
         }
         sim_time += step_dt;
+        steps_run = step;
+
+        if track {
+            for t in &mut tracked {
+                t.update(&particles);
+            }
+            encounters.record(&tracked, sim_time);
+        }
+
+        // Frames, at the step nearest each requested time
+        while next_render < render_times.len() && sim_time >= render_times[next_render] - 0.5 * current_dt {
+            let (frame, diag) = capture(&particles, &tracked, sim_time, step);
+            note_drift(&diag);
+            frames.push(frame);
+            next_render += 1;
+        }
 
         // Diagnostics
         if cli.diag_interval > 0 && step % cli.diag_interval == 0 {
             let diag = diagnostics::compute(&particles, softening, sim_time, step);
+            note_drift(&diag);
             let de = (diag.total_energy - initial_diag.total_energy) / initial_diag.total_energy.abs();
 
             eprintln!(
@@ -235,9 +415,9 @@ fn main() {
 
     // Final diagnostics
     let final_diag = if use_full_diag {
-        diagnostics::compute(&particles, softening, sim_time, cli.steps)
+        diagnostics::compute(&particles, softening, sim_time, steps_run)
     } else {
-        diagnostics::compute_fast(&particles, sim_time, cli.steps)
+        diagnostics::compute_fast(&particles, sim_time, steps_run)
     };
     let de = (final_diag.total_energy - initial_diag.total_energy) / initial_diag.total_energy.abs();
 
@@ -245,7 +425,7 @@ fn main() {
     eprintln!("=== Final ===");
     eprintln!("Sim time:   {sim_time:.6e}");
     eprintln!("Wall time:  {:.3}s", wall_elapsed.as_secs_f64());
-    eprintln!("Steps/sec:  {:.0}", cli.steps as f64 / wall_elapsed.as_secs_f64());
+    eprintln!("Steps/sec:  {:.0}", steps_run as f64 / wall_elapsed.as_secs_f64());
     eprintln!("Energy:     {:.10e}  (dE/E = {:+.6e})", final_diag.total_energy, de);
     eprintln!("Momentum:   {:.6e}", final_diag.momentum_magnitude());
     eprintln!("Ang. Mom:   {:.6e}", final_diag.angular_momentum_magnitude());
@@ -253,11 +433,76 @@ fn main() {
     eprintln!("Virial:     {:.4}", final_diag.virial_ratio);
 
     // Only write final row if not already written by the periodic output
-    let already_written = cli.diag_interval > 0 && cli.steps % cli.diag_interval == 0;
+    let already_written = cli.diag_interval > 0 && steps_run % cli.diag_interval == 0;
     if !already_written
         && let Some(ref mut w) = diag_writer
     {
         use std::io::Write;
         writeln!(w, "{}", final_diag.to_csv_row()).unwrap();
     }
+
+    if next_render < render_times.len() {
+        eprintln!(
+            "Warning:    run ended at t={sim_time:.4}; frames at t >= {} were not rendered",
+            render_times[next_render]
+        );
+    }
+
+    if let Some(path) = summary_path {
+        note_drift(&final_diag);
+        let l0 = initial_diag.angular_momentum_magnitude();
+        let dl = summary::dist(final_diag.angular_momentum, initial_diag.angular_momentum);
+        let report = summary::Summary {
+            scenario: scenario_name,
+            spec: cli.spec.clone(),
+            particles: particles.count,
+            particle_types: summary::TypeCounts::of(&particles),
+            algorithm: cli.algorithm.clone(),
+            theta: (cli.algorithm == "barnes-hut").then_some(cli.theta),
+            dt,
+            softening,
+            steps: steps_run,
+            sim_time,
+            wall_seconds: wall_elapsed.as_secs_f64(),
+            initial: summary::Energetics::new(&initial_diag, initial_diag.total_energy),
+            final_state: summary::Energetics::new(&final_diag, initial_diag.total_energy),
+            max_abs_energy_drift: max_drift,
+            angular_momentum_drift: if l0 > 0.0 { dl / l0 } else { dl },
+            components: tracked.iter().enumerate().map(|(i, t)| t.state(&particles, i)).collect(),
+            encounters: encounters.encounters,
+            render: rendering.then(|| summary::RenderInfo {
+                size: render_opts.size,
+                radius: render_opts.radius,
+                views: views.iter().map(|v| v.name().to_string()).collect(),
+                dark_matter_shown: render_opts.show_dark_matter,
+                exposure: if cli.render_autoexpose { "per_frame" } else { "fixed" }.to_string(),
+            }),
+            frames,
+        };
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir).expect("Failed to create summary directory");
+        }
+        let json = serde_json::to_string_pretty(&report).expect("summary serializes");
+        fs::write(&path, json + "\n").unwrap_or_else(|e| {
+            eprintln!("Failed to write {}: {e}", path.display());
+            std::process::exit(1);
+        });
+        eprintln!("Summary:    {}", path.display());
+    }
+}
+
+/// Radius around the origin (the center of mass) holding `fraction` of the
+/// visible (non-dark-matter) particles.
+fn visible_radius(p: &sim_core::particle::Particles, fraction: f64) -> f64 {
+    let dm = sim_core::particle::ParticleType::DarkMatter as u8;
+    let mut r: Vec<f64> = (0..p.count)
+        .filter(|&i| p.particle_type[i] != dm)
+        .map(|i| (p.x[i] * p.x[i] + p.y[i] * p.y[i] + p.z[i] * p.z[i]).sqrt())
+        .collect();
+    if r.is_empty() {
+        return 1.0;
+    }
+    let k = ((r.len() - 1) as f64 * fraction) as usize;
+    let (_, v, _) = r.select_nth_unstable_by(k, f64::total_cmp);
+    if *v > 0.0 { *v } else { 1.0 }
 }
