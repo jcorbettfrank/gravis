@@ -46,14 +46,15 @@ Step 1 is done on branch `feat/scenario-spec`, which builds on `main` at `3f0ce2
    t=0.5, so it never sees this. **A separate session is already working on
    it** (fix + extended test); don't duplicate it. Until it lands, no example
    spec uses gas.
-2. **Native-app energy readout is wrong after the first second.** The sim
+2. ~~**Native-app energy readout is wrong after the first second.** The sim
    thread switches to `diagnostics::compute_fast` (U=0), so the UI shows
-   E = K and dE/E ≈ +2. Headless diagnostics are correct.
+   E = K and dE/E ≈ +2. Headless diagnostics are correct.~~ Fixed by
+   workstream C ([ADR 012](adr/012-native-energy-diagnostics.md)).
 3. **Disks look sparse.** Particles have equal mass, so dark matter gets ~91% of
    a default galaxy's particles. 40K particles gives ~1,300 disk stars per
    galaxy.
-4. **The native-app initial snapshot runs O(N²) `diagnostics::compute`**, which
-   takes seconds at N≥40K.
+4. ~~**The native-app initial snapshot runs O(N²) `diagnostics::compute`**, which
+   takes seconds at N≥40K.~~ Fixed by workstream C (ADR 012).
 
 ## Parallel workstreams
 
