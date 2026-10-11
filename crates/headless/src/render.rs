@@ -232,7 +232,9 @@ pub fn tone_map(light: &[f32], n: usize, exposure: f32) -> Image {
     let beta = exposure / 100.0;
     let norm = (exposure / beta).asinh();
     let mut rgb = vec![0u8; 3 * n * n];
-    for (out, c) in rgb.chunks_exact_mut(3).zip(light.chunks_exact(3)) {
+    let (pixels, _) = rgb.as_chunks_mut::<3>();
+    let (texels, _) = light.as_chunks::<3>();
+    for (out, c) in pixels.iter_mut().zip(texels) {
         let l = peak(c);
         if l <= 0.0 {
             continue;
