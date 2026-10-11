@@ -44,6 +44,9 @@ cargo run -p native-app --release -- --scenario plummer -n 5000 --speed 10.0
 # Capture a screenshot without interactive window
 cargo run -p native-app --release -- --scenario plummer -n 5000 --screenshot artifacts/media/plummer.png
 
+# Dark matter is hidden by default (toggle with D in the window)
+cargo run -p native-app --release -- --scenario galaxy-collision --show-dark-matter
+
 # Run a JSON scenario spec (headless or native; -n rescales it)
 cargo run -p headless --release -- --spec specs/tilted-flyby.json --algorithm barnes-hut --steps 2000
 cargo run -p native-app --release -- --spec specs/tilted-flyby.json --algorithm barnes-hut

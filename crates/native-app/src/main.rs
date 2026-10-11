@@ -54,6 +54,10 @@ pub struct Cli {
     #[arg(long, requires = "screenshot")]
     pub screenshot_time: Option<f64>,
 
+    /// Draw dark-matter particles (hidden by default; toggle with D)
+    #[arg(long)]
+    pub show_dark_matter: bool,
+
     /// Force calculation algorithm
     #[arg(long, default_value = "brute-force", value_parser = ["brute-force", "barnes-hut"])]
     pub algorithm: String,

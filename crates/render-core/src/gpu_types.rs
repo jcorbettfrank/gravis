@@ -1,10 +1,12 @@
 /// Per-instance data for a single particle, packed for GPU.
-/// 32 bytes: position (12) + mass (4) + color (16) — power-of-two aligned.
+/// 32 bytes: position (12) + size (4) + color (16) — power-of-two aligned.
+/// `size` is the billboard's world-space width and `color.rgb` already
+/// includes brightness (see `color::ParticleStyler`).
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuParticle {
     pub position: [f32; 3],
-    pub mass: f32,
+    pub size: f32,
     pub color: [f32; 4],
 }
 
