@@ -1,3 +1,7 @@
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
+use crate::barnes_hut::BarnesHut;
 use crate::particle::Particles;
 use crate::units::G;
 
@@ -29,13 +33,38 @@ pub struct Diagnostics {
     pub thermal_energy: f64,
 }
 
+/// How `compute_inner` gets the potential energy.
+enum Potential {
+    /// Skip it: U, E and the virial ratio come out without U.
+    Skip,
+    /// Exact O(N²) pair sum.
+    Exact,
+    /// Barnes-Hut tree estimate, O(N log N), with this opening angle.
+    Tree(f64),
+}
+
 /// Compute all diagnostics for the current state.
 ///
 /// The potential energy calculation is O(N²) — same cost as brute-force
-/// gravity. For large N with Barnes-Hut, you'd want an approximate
-/// potential, but for verification purposes exact is correct.
+/// gravity. For large N, `compute_tree` gives an approximate potential in
+/// O(N log N); for verification purposes exact is correct.
 pub fn compute(particles: &Particles, softening: f64, time: f64, step: u64) -> Diagnostics {
-    compute_inner(particles, softening, time, step, true)
+    compute_inner(particles, softening, time, step, Potential::Exact)
+}
+
+/// Compute all diagnostics with a Barnes-Hut estimate of the potential energy.
+///
+/// O(N log N). The potential carries the tree's monopole error, so use a
+/// small `theta` (≲0.3) when the result feeds an energy-drift readout, and
+/// compare drifts only between values computed the same way.
+pub fn compute_tree(
+    particles: &Particles,
+    softening: f64,
+    theta: f64,
+    time: f64,
+    step: u64,
+) -> Diagnostics {
+    compute_inner(particles, softening, time, step, Potential::Tree(theta))
 }
 
 /// Compute diagnostics without the O(N²) potential energy calculation.
@@ -44,7 +73,7 @@ pub fn compute(particles: &Particles, softening: f64, time: f64, step: u64) -> D
 /// Potential energy, total energy, and virial ratio are set to 0.
 /// Use this for large N when you don't need energy conservation tracking.
 pub fn compute_fast(particles: &Particles, time: f64, step: u64) -> Diagnostics {
-    compute_inner(particles, 0.0, time, step, false)
+    compute_inner(particles, 0.0, time, step, Potential::Skip)
 }
 
 fn compute_inner(
@@ -52,7 +81,7 @@ fn compute_inner(
     softening: f64,
     time: f64,
     step: u64,
-    compute_potential: bool,
+    potential: Potential,
 ) -> Diagnostics {
     let n = particles.count;
     let eps2 = softening * softening;
@@ -67,16 +96,11 @@ fn compute_inner(
 
     // Potential energy: U = Σᵢ<ⱼ -G * mᵢ * mⱼ / sqrt(rᵢⱼ² + ε²)
     let mut potential_energy = 0.0;
-    if compute_potential {
-        for i in 0..n {
-            for j in (i + 1)..n {
-                let dx = p.x[j] - p.x[i];
-                let dy = p.y[j] - p.y[i];
-                let dz = p.z[j] - p.z[i];
-                let r2 = dx * dx + dy * dy + dz * dz + eps2;
-                potential_energy -= G * p.mass[i] * p.mass[j] / r2.sqrt();
-            }
-        }
+    if let Potential::Tree(theta) = potential {
+        potential_energy = BarnesHut::new(softening, theta).potential_energy(p);
+    }
+    if let Potential::Exact = potential {
+        potential_energy = exact_potential(p, eps2);
     }
 
     // Thermal energy: E_th = Σ mᵢ uᵢ (gas particles only)
@@ -145,6 +169,33 @@ fn compute_inner(
         virial_ratio,
         thermal_energy,
     }
+}
+
+/// Exact softened pair potential U = Σᵢ<ⱼ -G mᵢ mⱼ / sqrt(rᵢⱼ² + ε²).
+///
+/// Rows (one i against all j > i) run in parallel with the `parallel`
+/// feature; row sums are then added in index order, so the result does not
+/// depend on thread count.
+fn exact_potential(p: &Particles, eps2: f64) -> f64 {
+    let n = p.count;
+    let row = |i: usize| {
+        let mut u = 0.0;
+        for j in (i + 1)..n {
+            let dx = p.x[j] - p.x[i];
+            let dy = p.y[j] - p.y[i];
+            let dz = p.z[j] - p.z[i];
+            let r2 = dx * dx + dy * dy + dz * dz + eps2;
+            u -= G * p.mass[i] * p.mass[j] / r2.sqrt();
+        }
+        u
+    };
+
+    #[cfg(feature = "parallel")]
+    let rows: Vec<f64> = (0..n).into_par_iter().map(row).collect();
+    #[cfg(not(feature = "parallel"))]
+    let rows: Vec<f64> = (0..n).map(row).collect();
+
+    rows.iter().sum()
 }
 
 impl Diagnostics {

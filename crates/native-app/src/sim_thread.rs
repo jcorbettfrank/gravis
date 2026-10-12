@@ -7,6 +7,7 @@ use sim_core::barnes_hut::BarnesHut;
 use sim_core::diagnostics;
 use sim_core::gravity::{BruteForce, GravitySolver, NoGravity};
 use sim_core::integrator::{Integrator, LeapfrogKDK};
+use sim_core::particle::Particles;
 use sim_core::scenario_builder::{self, ScenarioConfig};
 use sim_core::sph::solver::SphSolver;
 
@@ -21,13 +22,80 @@ pub struct RenderSnapshot {
     pub center_of_mass: [f32; 3],
     pub sim_time: f64,
     pub step: u64,
-    pub total_energy: f64,
-    pub kinetic_energy: f64,
-    pub potential_energy: f64,
-    #[allow(dead_code)] // will be shown in HUD
-    pub thermal_energy: f64,
-    pub virial_ratio: f64,
+    /// Latest energy measurement; `None` until the first one finishes.
+    pub energy: Option<EnergyReadout>,
     pub particle_count: usize,
+}
+
+/// How the potential energy in an `EnergyReadout` was computed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum EnergyMethod {
+    /// Exact O(N²) pair sum.
+    Exact,
+    /// Barnes-Hut tree estimate with this opening angle.
+    Tree(f64),
+    /// Gravity is off (pure hydro), so U is not part of the energy.
+    NoGravity,
+}
+
+/// One energy measurement, taken at `sim_time`. Snapshots between
+/// measurements repeat the latest one.
+#[derive(Clone, Copy, Debug)]
+pub struct EnergyReadout {
+    pub sim_time: f64,
+    pub total: f64,
+    pub kinetic: f64,
+    pub potential: f64,
+    #[allow(dead_code)] // will be shown in HUD
+    pub thermal: f64,
+    pub virial_ratio: f64,
+    pub method: EnergyMethod,
+}
+
+/// Largest N for which the HUD energy uses the exact pair sum. Above it the
+/// potential comes from a tree walk (ADR 012).
+const EXACT_ENERGY_MAX_N: usize = 50_000;
+/// Opening angle for the tree potential: ~1e-5 to 1e-4 relative error in E
+/// (ADR 012).
+const ENERGY_TREE_THETA: f64 = 0.3;
+/// Energy is measured at least this far apart...
+const MIN_ENERGY_INTERVAL: Duration = Duration::from_secs(1);
+/// ...and the worker is busy at most ~1/ENERGY_COST_FACTOR of the time.
+const ENERGY_COST_FACTOR: u32 = 10;
+
+fn energy_method(n: usize, gravity_on: bool) -> EnergyMethod {
+    if !gravity_on {
+        EnergyMethod::NoGravity
+    } else if n <= EXACT_ENERGY_MAX_N {
+        EnergyMethod::Exact
+    } else {
+        EnergyMethod::Tree(ENERGY_TREE_THETA)
+    }
+}
+
+fn measure_energy(
+    particles: &Particles,
+    softening: f64,
+    method: EnergyMethod,
+    sim_time: f64,
+    step: u64,
+) -> EnergyReadout {
+    let d = match method {
+        EnergyMethod::Exact => diagnostics::compute(particles, softening, sim_time, step),
+        EnergyMethod::Tree(theta) => {
+            diagnostics::compute_tree(particles, softening, theta, sim_time, step)
+        }
+        EnergyMethod::NoGravity => diagnostics::compute_fast(particles, sim_time, step),
+    };
+    EnergyReadout {
+        sim_time,
+        total: d.total_energy,
+        kinetic: d.kinetic_energy,
+        potential: d.potential_energy,
+        thermal: d.thermal_energy,
+        virial_ratio: d.virial_ratio,
+        method,
+    }
 }
 
 pub enum SimCommand {
@@ -163,17 +231,20 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
     // Particle types are invariant — share via Arc to avoid cloning per snapshot
     let particle_types = Arc::new(particles.particle_type.clone());
 
-    // Send initial snapshot with diagnostics
-    let initial_diag = diagnostics::compute(&particles, softening, sim_time, step);
-    let _ = tx.send(build_render_snapshot(&particles, &initial_diag, &particle_types));
+    // Show the initial state right away; energy arrives from the worker
+    let _ = tx.send(build_render_snapshot(&particles, sim_time, step, None, &particle_types));
+
+    let mut energy_worker =
+        EnergyWorker::spawn(softening, energy_method(particles.count, !pure_hydro));
+    energy_worker.start(&particles, sim_time, step);
+    let mut energy: Option<EnergyReadout> = None;
+    let mut next_energy_at = Instant::now();
+    let mut screenshot_energy_started = false;
 
     let wall_start = Instant::now();
     let mut last_snap_send = Instant::now();
-    let mut last_diag_time = Instant::now();
-    let mut cached_diag = initial_diag;
 
     const SNAP_INTERVAL: Duration = Duration::from_millis(16);
-    const DIAG_INTERVAL: Duration = Duration::from_secs(1);
 
     loop {
         // Handle commands
@@ -184,6 +255,14 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
                 SimCommand::SetSpeed(s) => speed_multiplier = s,
                 SimCommand::Stop => return,
             }
+        }
+
+        // Pick up a finished energy measurement; the next waits in proportion to its cost
+        let mut new_energy = false;
+        if let Some((readout, cost)) = energy_worker.poll() {
+            energy = Some(readout);
+            next_energy_at = Instant::now() + energy_interval(cost);
+            new_energy = true;
         }
 
         if paused {
@@ -218,12 +297,16 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
         }
 
         if cli.screenshot_time.is_some() && sim_time >= target_sim_time {
-            // Hold at the screenshot time; send its snapshot once
-            if !held_for_screenshot {
-                let diag = diagnostics::compute_fast(&particles, sim_time, step);
-                let snap = build_render_snapshot_with_diag(&particles, &diag, sim_time, step, &particle_types);
+            // Hold at the screenshot time: send its snapshot, measure its energy
+            // once the worker is free, and resend when that lands
+            if !held_for_screenshot || new_energy {
+                let snap = build_render_snapshot(&particles, sim_time, step, energy, &particle_types);
                 let _ = tx.send(snap);
                 held_for_screenshot = true;
+            }
+            if !screenshot_energy_started && !energy_worker.busy {
+                energy_worker.start(&particles, sim_time, step);
+                screenshot_energy_started = true;
             }
             thread::sleep(Duration::from_millis(10));
             continue;
@@ -234,13 +317,12 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
             continue;
         }
 
-        if last_diag_time.elapsed() >= DIAG_INTERVAL {
-            cached_diag = diagnostics::compute_fast(&particles, sim_time, step);
-            last_diag_time = Instant::now();
+        if !energy_worker.busy && Instant::now() >= next_energy_at {
+            energy_worker.start(&particles, sim_time, step);
         }
 
         if last_snap_send.elapsed() >= SNAP_INTERVAL {
-            let snap = build_render_snapshot_with_diag(&particles, &cached_diag, sim_time, step, &particle_types);
+            let snap = build_render_snapshot(&particles, sim_time, step, energy, &particle_types);
             if tx.send(snap).is_err() {
                 return;
             }
@@ -249,26 +331,70 @@ fn run_sim(cli: Cli, tx: mpsc::Sender<RenderSnapshot>, cmd_rx: mpsc::Receiver<Si
     }
 }
 
-fn build_render_snapshot(
-    particles: &sim_core::particle::Particles,
-    diag: &diagnostics::Diagnostics,
-    particle_types: &Arc<Vec<u8>>,
-) -> RenderSnapshot {
-    build_render_snapshot_with_diag(particles, diag, diag.time, diag.step, particle_types)
+/// Measures energy on its own thread, from a copy of the particles, so a
+/// slow measurement (seconds at large N) never stalls the sim or the frames.
+struct EnergyWorker {
+    job_tx: mpsc::Sender<(Particles, f64, u64)>,
+    result_rx: mpsc::Receiver<(EnergyReadout, Duration)>,
+    /// A measurement is in flight.
+    busy: bool,
 }
 
-fn build_render_snapshot_with_diag(
-    particles: &sim_core::particle::Particles,
-    diag: &diagnostics::Diagnostics,
+impl EnergyWorker {
+    fn spawn(softening: f64, method: EnergyMethod) -> Self {
+        let (job_tx, job_rx) = mpsc::channel::<(Particles, f64, u64)>();
+        let (result_tx, result_rx) = mpsc::channel();
+        // Exits when the sim thread drops `job_tx`
+        thread::spawn(move || {
+            while let Ok((particles, sim_time, step)) = job_rx.recv() {
+                let start = Instant::now();
+                let readout = measure_energy(&particles, softening, method, sim_time, step);
+                if result_tx.send((readout, start.elapsed())).is_err() {
+                    return;
+                }
+            }
+        });
+        Self { job_tx, result_rx, busy: false }
+    }
+
+    fn start(&mut self, particles: &Particles, sim_time: f64, step: u64) {
+        self.busy = self.job_tx.send((particles.clone(), sim_time, step)).is_ok();
+    }
+
+    /// The finished measurement and what it cost, if one landed.
+    fn poll(&mut self) -> Option<(EnergyReadout, Duration)> {
+        let result = self.result_rx.try_recv().ok();
+        if result.is_some() {
+            self.busy = false;
+        }
+        result
+    }
+}
+
+/// Wait between energy measurements, given what the last one cost.
+fn energy_interval(cost: Duration) -> Duration {
+    MIN_ENERGY_INTERVAL.max(cost * ENERGY_COST_FACTOR)
+}
+
+fn build_render_snapshot(
+    particles: &Particles,
     sim_time: f64,
     step: u64,
+    energy: Option<EnergyReadout>,
     particle_types: &Arc<Vec<u8>>,
 ) -> RenderSnapshot {
     let n = particles.count;
     let mut positions = Vec::with_capacity(n);
     let mut internal_energies = Vec::with_capacity(n);
+    let mut com = [0.0f64; 3];
+    let mut m_total = 0.0f64;
 
     for i in 0..n {
+        let m = particles.mass[i];
+        com[0] += m * particles.x[i];
+        com[1] += m * particles.y[i];
+        com[2] += m * particles.z[i];
+        m_total += m;
         positions.push([
             particles.x[i] as f32,
             particles.y[i] as f32,
@@ -276,23 +402,63 @@ fn build_render_snapshot_with_diag(
         ]);
         internal_energies.push(particles.internal_energy[i] as f32);
     }
+    if m_total > 0.0 {
+        for c in &mut com {
+            *c /= m_total;
+        }
+    }
 
     RenderSnapshot {
         positions,
         particle_types: Arc::clone(particle_types),
         internal_energies,
-        center_of_mass: [
-            diag.center_of_mass[0] as f32,
-            diag.center_of_mass[1] as f32,
-            diag.center_of_mass[2] as f32,
-        ],
+        center_of_mass: [com[0] as f32, com[1] as f32, com[2] as f32],
         sim_time,
         step,
-        total_energy: diag.total_energy,
-        kinetic_energy: diag.kinetic_energy,
-        potential_energy: diag.potential_energy,
-        thermal_energy: diag.thermal_energy,
-        virial_ratio: diag.virial_ratio,
+        energy,
         particle_count: n,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    /// The HUD energy includes U for the whole run, not just the first
+    /// snapshot (known issue 2 in docs/text-to-universe-handoff.md).
+    #[test]
+    fn energy_stays_conserved_after_first_second() {
+        let cli = Cli::parse_from(["native-app", "--scenario", "plummer", "-n", "1000", "--speed", "2"]);
+        let sim = spawn(&cli);
+        let mut readings: Vec<EnergyReadout> = Vec::new();
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_millis(3500) {
+            while let Ok(snap) = sim.snapshot_rx.try_recv() {
+                if let Some(e) = snap.energy
+                    && readings.last().is_none_or(|prev| prev.sim_time != e.sim_time)
+                {
+                    readings.push(e);
+                }
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        drop(sim);
+
+        assert!(readings.len() >= 3, "only {} energy readings", readings.len());
+        let e0 = readings[0].total;
+        for e in &readings {
+            assert_eq!(e.method, EnergyMethod::Exact);
+            assert!(e.potential < 0.0, "U missing at t={}", e.sim_time);
+            let de = ((e.total - e0) / e0).abs();
+            assert!(de < 1e-3, "dE/E = {de:.2e} at t={}", e.sim_time);
+        }
+    }
+
+    #[test]
+    fn energy_method_by_size() {
+        assert_eq!(energy_method(1000, true), EnergyMethod::Exact);
+        assert_eq!(energy_method(EXACT_ENERGY_MAX_N + 1, true), EnergyMethod::Tree(ENERGY_TREE_THETA));
+        assert_eq!(energy_method(1000, false), EnergyMethod::NoGravity);
     }
 }

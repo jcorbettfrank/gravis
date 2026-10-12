@@ -107,6 +107,89 @@ impl BarnesHut {
         acc
     }
 
+    /// Compute the softened potential φ at particle `i` by walking the tree,
+    /// with the same opening criterion and softening as `tree_walk_accel`:
+    /// φᵢ = -Σⱼ G mⱼ / sqrt(rᵢⱼ² + ε²), distant nodes taken as monopoles.
+    fn tree_walk_potential(
+        &self,
+        tree: &Octree,
+        px: f64,
+        py: f64,
+        pz: f64,
+        particle_idx: u32,
+        eps2: f64,
+    ) -> f64 {
+        let mut phi = 0.0f64;
+        let theta2 = self.theta2;
+        let nodes = &tree.nodes;
+
+        let mut stack_buf = [0u32; 512];
+        let mut stack_len = 1usize;
+        stack_buf[0] = 0; // root
+
+        while stack_len > 0 {
+            stack_len -= 1;
+            let node = &nodes[stack_buf[stack_len] as usize];
+
+            if node.total_mass == 0.0 {
+                continue;
+            }
+
+            let dx = node.center_of_mass[0] - px;
+            let dy = node.center_of_mass[1] - py;
+            let dz = node.center_of_mass[2] - pz;
+            let d2 = dx * dx + dy * dy + dz * dz;
+
+            if node.particle_index != NONE {
+                if node.particle_index != particle_idx {
+                    phi -= G * node.total_mass / (d2 + eps2).sqrt();
+                }
+                continue;
+            }
+
+            let s = node.bounds.half_width * 2.0;
+            if s * s < theta2 * d2 {
+                phi -= G * node.total_mass / (d2 + eps2).sqrt();
+                continue;
+            }
+
+            for &child_idx in &node.children {
+                if child_idx != NONE {
+                    stack_buf[stack_len] = child_idx;
+                    stack_len += 1;
+                }
+            }
+        }
+
+        phi
+    }
+
+    /// Total gravitational potential energy U = ½ Σᵢ mᵢ φᵢ from a tree walk.
+    ///
+    /// O(N log N) instead of the O(N²) pair sum in `diagnostics::compute`.
+    /// Each particle's φ carries the same monopole error as its force, so
+    /// U is approximate; smaller theta tightens it (theta=0 is exact up to
+    /// summation order). Per-particle terms are summed in index order, so
+    /// the result is deterministic with or without the `parallel` feature.
+    pub fn potential_energy(&self, p: &Particles) -> f64 {
+        let n = p.count;
+        if n == 0 {
+            return 0.0;
+        }
+        let tree = Octree::build(p);
+        let eps2 = self.softening * self.softening;
+        let term = |i: usize| {
+            p.mass[i] * self.tree_walk_potential(&tree, p.x[i], p.y[i], p.z[i], i as u32, eps2)
+        };
+
+        #[cfg(feature = "parallel")]
+        let terms: Vec<f64> = (0..n).into_par_iter().map(term).collect();
+        #[cfg(not(feature = "parallel"))]
+        let terms: Vec<f64> = (0..n).map(term).collect();
+
+        0.5 * terms.iter().sum::<f64>()
+    }
+
     /// Add gravitational acceleration from a source (mass at position) onto
     /// the target particle at (px, py, pz).
     #[allow(clippy::too_many_arguments)]

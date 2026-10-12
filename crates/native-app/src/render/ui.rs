@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::sim_thread::RenderSnapshot;
+use crate::sim_thread::{EnergyMethod, EnergyReadout, RenderSnapshot};
 
 const FPS_HISTORY_CAP: usize = 120;
 const ENERGY_HISTORY_CAP: usize = 500;
@@ -14,10 +14,7 @@ pub struct UiState {
     particle_count: usize,
     sim_time: f64,
     step: u64,
-    total_energy: f64,
-    kinetic_energy: f64,
-    potential_energy: f64,
-    virial_ratio: f64,
+    energy: Option<EnergyReadout>,
     algorithm: String,
     show_dark_matter: bool,
     has_dark_matter: bool,
@@ -34,10 +31,7 @@ impl UiState {
             particle_count: 0,
             sim_time: 0.0,
             step: 0,
-            total_energy: 0.0,
-            kinetic_energy: 0.0,
-            potential_energy: 0.0,
-            virial_ratio: 0.0,
+            energy: None,
             algorithm,
             show_dark_matter,
             has_dark_matter: false,
@@ -55,23 +49,24 @@ impl UiState {
         self.particle_count = snap.particle_count;
         self.sim_time = snap.sim_time;
         self.step = snap.step;
-        self.total_energy = snap.total_energy;
-        self.kinetic_energy = snap.kinetic_energy;
-        self.potential_energy = snap.potential_energy;
-        self.virial_ratio = snap.virial_ratio;
         self.has_dark_matter = snap
             .particle_types
             .contains(&render_core::color::types::DARK_MATTER);
 
-        if self.initial_energy.is_none() && snap.total_energy != 0.0 {
-            self.initial_energy = Some(snap.total_energy);
+        // Snapshots repeat the latest measurement; record each one once
+        let Some(e) = snap.energy else { return };
+        if self.energy.is_some_and(|prev| prev.sim_time == e.sim_time) {
+            return;
+        }
+        self.energy = Some(e);
+        if self.initial_energy.is_none() {
+            self.initial_energy = Some(e.total);
         }
 
         if self.energy_history.len() >= ENERGY_HISTORY_CAP {
             self.energy_history.pop_front();
         }
-        self.energy_history
-            .push_back([snap.sim_time, snap.total_energy]);
+        self.energy_history.push_back([e.sim_time, e.total]);
     }
 
     pub fn speed_multiplier(&self) -> f64 {
@@ -153,30 +148,39 @@ impl UiState {
                 ui.separator();
 
                 // Energy diagnostics
-                let de_rel = if let Some(e0) = self.initial_energy {
-                    if e0.abs() > 0.0 {
-                        (self.total_energy - e0) / e0.abs()
-                    } else {
-                        0.0
+                match self.energy {
+                    None => {
+                        ui.label("E: measuring…");
                     }
-                } else {
-                    0.0
-                };
-
-                ui.label(format!("E = {:.6e}", self.total_energy));
-                ui.label(format!("dE/E = {:+.4e}", de_rel));
-                ui.label(format!(
-                    "K = {:.4e}  U = {:.4e}",
-                    self.kinetic_energy, self.potential_energy
-                ));
-                ui.label(format!("Virial 2K/|U| = {:.4}", self.virial_ratio));
+                    Some(e) => {
+                        let de_rel = match self.initial_energy {
+                            Some(e0) if e0.abs() > 0.0 => (e.total - e0) / e0.abs(),
+                            _ => 0.0,
+                        };
+                        ui.label(format!("E = {:.6e}", e.total));
+                        ui.label(format!("dE/E = {:+.4e}", de_rel));
+                        ui.label(format!("K = {:.4e}  U = {:.4e}", e.kinetic, e.potential));
+                        if e.method != EnergyMethod::NoGravity {
+                            ui.label(format!("Virial 2K/|U| = {:.4}", e.virial_ratio));
+                        }
+                        ui.label(format!(
+                            "U {} at t = {:.2}",
+                            match e.method {
+                                EnergyMethod::Exact => "exact".to_string(),
+                                EnergyMethod::Tree(theta) => format!("tree estimate (θ={theta})"),
+                                EnergyMethod::NoGravity => "off (no gravity)".to_string(),
+                            },
+                            e.sim_time
+                        ));
+                    }
+                }
 
                 // Energy conservation plot
                 if !self.energy_history.is_empty() {
                     ui.separator();
                     ui.label("Energy drift (dE/E):");
 
-                    let e0 = self.initial_energy.unwrap_or(self.total_energy);
+                    let e0 = self.initial_energy.unwrap_or(0.0);
                     let points: egui_plot::PlotPoints = self
                         .energy_history
                         .iter()
