@@ -130,7 +130,7 @@ before strong compression.
 
 | Spec | What it shows |
 |---|---|
-| [`tilted-flyby.json`](tilted-flyby.json) | Prograde encounter; one disk tilted 60° |
+| [`tilted-flyby.json`](tilted-flyby.json) | Near head-on plunge and merger of two disks; one tilted 60° |
 | [`minor-merger.json`](minor-merger.json) | A dwarf galaxy shredded by a Milky Way–like disk |
 | [`cluster-and-black-hole.json`](cluster-and-black-hole.json) | A star cluster stripped into streams by a black hole |
 
