@@ -9,10 +9,11 @@ use sim_core::scenario::Scenario;
 use sim_core::scenario_builder;
 use sim_core::spec::{Component, MAX_PARTICLES, ScenarioSpec};
 
-const EXAMPLES: [(&str, &str); 3] = [
+const EXAMPLES: [(&str, &str); 4] = [
     ("tilted-flyby", include_str!("../../../specs/tilted-flyby.json")),
     ("minor-merger", include_str!("../../../specs/minor-merger.json")),
     ("cluster-and-black-hole", include_str!("../../../specs/cluster-and-black-hole.json")),
+    ("dwarf-plunge", include_str!("../../../specs/dwarf-plunge.json")),
 ];
 
 fn parse(json: &str) -> ScenarioSpec {

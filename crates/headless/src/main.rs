@@ -469,7 +469,7 @@ fn main() {
             max_abs_energy_drift: max_drift,
             angular_momentum_drift: if l0 > 0.0 { dl / l0 } else { dl },
             components: tracked.iter().enumerate().map(|(i, t)| t.state(&particles, i)).collect(),
-            encounters: encounters.encounters,
+            encounters: encounters.finish(),
             render: rendering.then(|| summary::RenderInfo {
                 size: render_opts.size,
                 radius: render_opts.radius,
