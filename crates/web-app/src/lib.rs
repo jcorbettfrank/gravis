@@ -317,7 +317,11 @@ pub async fn main() {
     console_log::init_with_level(log::Level::Info).ok();
     log::info!("gravis web-app starting");
 
-    let window = web_sys::window().expect("no global window");
+    // In a Web Worker (the text-to-universe page's preview) there is no
+    // window or canvas: the module only provides `SpecPreview` there.
+    let Some(window) = web_sys::window() else {
+        return;
+    };
     let document = window.document().expect("no document");
     let canvas: HtmlCanvasElement = document
         .get_element_by_id("simulation")
@@ -599,6 +603,72 @@ pub fn load_spec(json: &str) -> Result<String, JsError> {
         "rescaled_from": rescaled_from,
     })
     .to_string())
+}
+
+/// A quick check run of a spec (energy drift, encounters), for the
+/// text-to-universe page. Built and stepped in a Web Worker so it never
+/// blocks rendering; see `sim_core::preview` and ADR 014.
+#[wasm_bindgen]
+pub struct SpecPreview {
+    inner: sim_core::preview::Preview,
+}
+
+#[wasm_bindgen]
+impl SpecPreview {
+    /// Build a preview of `json`, rescaled to at most `particles`, to run to
+    /// sim time `until` (or `max_steps`, whichever comes first). Throws with
+    /// a message naming the offending field if the spec is invalid.
+    #[wasm_bindgen(constructor)]
+    pub fn new(json: &str, particles: usize, until: f64, max_steps: u32) -> Result<SpecPreview, JsError> {
+        let spec = ScenarioSpec::from_json(json).map_err(|e| JsError::new(&e))?;
+        let cfg = sim_core::preview::PreviewConfig {
+            particles,
+            until,
+            max_steps: u64::from(max_steps),
+            ..Default::default()
+        };
+        let inner = sim_core::preview::Preview::new(&spec, &cfg).map_err(|e| JsError::new(&e))?;
+        Ok(SpecPreview { inner })
+    }
+
+    /// Run up to `steps` more steps; true once the run is complete.
+    pub fn advance(&mut self, steps: u32) -> bool {
+        self.inner.advance(u64::from(steps))
+    }
+
+    pub fn progress(&self) -> f64 {
+        self.inner.progress()
+    }
+
+    pub fn time(&self) -> f64 {
+        self.inner.time()
+    }
+
+    pub fn dt(&self) -> f64 {
+        self.inner.dt()
+    }
+
+    pub fn view_radius(&self) -> f64 {
+        self.inner.view_radius()
+    }
+
+    /// Positions as interleaved `x, y, z`, for drawing a frame.
+    pub fn positions(&self) -> Vec<f32> {
+        let p = self.inner.particles();
+        (0..p.count)
+            .flat_map(|i| [p.x[i] as f32, p.y[i] as f32, p.z[i] as f32])
+            .collect()
+    }
+
+    /// Particle types (`sim_core::particle::ParticleType` as u8).
+    pub fn types(&self) -> Vec<u8> {
+        self.inner.particles().particle_type.clone()
+    }
+
+    /// The report so far as JSON (`sim_core::preview::PreviewReport`).
+    pub fn report(&self) -> String {
+        serde_json::to_string(&self.inner.report()).unwrap_or_else(|e| format!("{{\"error\":\"{e}\"}}"))
+    }
 }
 
 /// Rebuild the running spec, e.g. after an algorithm or particle-count change.

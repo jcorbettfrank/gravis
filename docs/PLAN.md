@@ -321,7 +321,7 @@ gravis/
 **Steps**:
 1. ✓ Declarative scenario specs ([ADR 008](adr/008-scenario-specs.md)): JSON components (`disk_galaxy` with `spin_axis`, `plummer`, `point_mass`, `gas_cloud`) loaded by headless and native-app (`--spec`) and the browser (`load_spec`). Native `--screenshot-time` renders a chosen sim time.
 2. ✓ A Claude Code skill (`/universe`, [ADR 013](adr/013-universe-skill.md)) that writes a spec from a description, runs it headless, reads energy drift and structure, renders frames, and revises.
-3. A public page where visitors type their own descriptions.
+3. ✓ A public page where visitors type their own descriptions ([ADR 014](adr/014-public-universe-page.md)): `demos/universe.html` runs the same loop in the browser with the visitor's API key, previewing each draft in a Web Worker.
 4. Star/dark-matter particle split and telescope-like rendering (dark matter hidden by default), measured for disk heating.
 
 ## Book Table of Contents

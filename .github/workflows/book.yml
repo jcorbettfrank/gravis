@@ -8,6 +8,7 @@ on:
       - "crates/web-app/**"
       - "crates/render-core/**"
       - "crates/sim-core/**"
+      - "specs/**"
   workflow_dispatch:
 
 permissions: {}  # deny all at workflow level; grant per job
@@ -63,6 +64,10 @@ jobs:
           cp crates/web-app/pkg/web_app.js artifacts/book/demos/pkg/
           cp crates/web-app/pkg/web_app_bg.wasm artifacts/book/demos/pkg/
           cp crates/web-app/static/demos/*.html artifacts/book/demos/
+          cp crates/web-app/static/demos/*.js artifacts/book/demos/
+          mkdir -p artifacts/book/demos/specs
+          cp specs/*.json artifacts/book/demos/specs/
+          bash scripts/vendor_anthropic_sdk.sh artifacts/book/demos/vendor/anthropic-sdk
           cp crates/web-app/static/index.html artifacts/book/demos/full.html
 
       - name: Upload Pages artifact

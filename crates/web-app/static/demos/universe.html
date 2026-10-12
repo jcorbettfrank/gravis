@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text to Universe — gravis</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            color: #c0c0d0;
+        }
+        #simulation { width: 100vw; height: 100vh; display: block; touch-action: none; }
+        .panel {
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            bottom: 6px;
+            width: min(380px, calc(100% - 12px));
+            background: rgba(10, 10, 20, 0.9);
+            border: 1px solid #2a2a3a;
+            border-radius: 6px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            overflow-y: auto;
+        }
+        .panel.collapsed { bottom: auto; overflow: hidden; }
+        .panel.collapsed > :not(.top) { display: none; }
+        .top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+        h1 { font-size: 15px; font-weight: 600; color: #e0e0f0; }
+        .sub { color: #8888a0; font-size: 12px; line-height: 1.45; }
+        .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        button {
+            background: #2a2a4a;
+            color: #c0c0d0;
+            border: 1px solid #4a4a6a;
+            border-radius: 4px;
+            padding: 4px 9px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        button:disabled { opacity: 0.5; cursor: default; }
+        button.primary { background: #30407a; border-color: #5070c0; color: #fff; }
+        button.chip { border-radius: 12px; font-size: 11px; padding: 3px 9px; }
+        textarea, input[type=text], input[type=password], select {
+            background: #12121a;
+            color: #d0d0e0;
+            border: 1px solid #3a3a4a;
+            border-radius: 4px;
+            padding: 6px;
+            font: inherit;
+        }
+        textarea { width: 100%; min-height: 64px; resize: vertical; }
+        input[type=text], input[type=password] { width: 100%; }
+        label { display: flex; align-items: center; gap: 4px; }
+        input[type=range] { width: 90px; }
+        details { border-top: 1px solid #2a2a3a; padding-top: 6px; }
+        summary { cursor: pointer; color: #9090b0; font-size: 12px; }
+        details .body { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+        .note { color: #707088; font-size: 11px; line-height: 1.4; }
+        #log { display: flex; flex-direction: column; gap: 6px; }
+        .entry {
+            border-left: 2px solid #3a3a5a;
+            padding: 2px 0 2px 8px;
+            font-size: 12px;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+        }
+        .entry.claude { border-color: #7a6ad0; }
+        .entry.preview { border-color: #4a7ac0; }
+        .entry.err { border-color: #c05050; color: #ff8080; }
+        .entry.answer { border-color: #70c090; color: #e0e0f0; white-space: pre-wrap; }
+        .entry img { width: 100%; image-rendering: pixelated; margin-top: 4px; border-radius: 3px; }
+        .verdict { font: 11px 'SF Mono', Menlo, monospace; }
+        .PASS { color: #70c090; }
+        .WARN { color: #e0b050; }
+        .FAIL { color: #ff7070; }
+        progress { width: 100%; height: 6px; }
+        pre {
+            background: #12121a;
+            border: 1px solid #2a2a3a;
+            border-radius: 4px;
+            padding: 6px;
+            font: 11px 'SF Mono', Menlo, monospace;
+            max-height: 240px;
+            overflow: auto;
+            white-space: pre-wrap;
+        }
+        .overlay {
+            position: absolute;
+            bottom: 6px;
+            right: 6px;
+            background: rgba(10, 10, 20, 0.8);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font: 11px 'SF Mono', Menlo, monospace;
+            color: #808090;
+        }
+        .overlay span { color: #70a0ff; }
+        #no-webgpu { display: none; color: #ff6060; padding: 20px; text-align: center; }
+        a { color: #80a0ff; }
+    </style>
+</head>
+<body>
+    <div id="no-webgpu">WebGPU required (Chrome 113+, Edge 113+, Safari 18+)</div>
+    <canvas id="simulation"></canvas>
+
+    <div class="panel" id="panel">
+        <div class="top">
+            <h1>Text to Universe</h1>
+            <button id="collapse" title="Hide the panel">▾</button>
+        </div>
+        <p class="sub">
+            Describe a scene with galaxies, star clusters or black holes. Claude writes a
+            scenario spec, test-runs it here in your browser (energy conservation, whether the
+            encounter happens, a look at the frames), revises, and then it plays live.
+        </p>
+        <textarea id="prompt" placeholder="A dwarf galaxy plunges through a Milky Way disk"
+            aria-label="Describe a scene"></textarea>
+        <div class="row">
+            <button id="build" class="primary">Build it</button>
+            <button id="stop" hidden>Stop</button>
+            <span id="status" class="note"></span>
+        </div>
+        <div>
+            <div class="note">Pre-built examples (no key needed):</div>
+            <div class="row" id="gallery"></div>
+        </div>
+
+        <details id="settings">
+            <summary>Claude API key and model</summary>
+            <div class="body">
+                <input type="password" id="api-key" placeholder="sk-ant-…" autocomplete="off"
+                    aria-label="Anthropic API key">
+                <label class="note"><input type="checkbox" id="remember"> Remember the key in this browser</label>
+                <label>Model
+                    <select id="model">
+                        <option value="claude-opus-5-5" selected>Claude Opus 5.5</option>
+                        <option value="claude-sonnet-5-5">Claude Sonnet 5.5</option>
+                        <option value="claude-haiku-5-5">Claude Haiku 5.5</option>
+                    </select>
+                </label>
+                <input type="text" id="proxy" placeholder="API proxy URL (optional)" aria-label="API proxy URL">
+                <p class="note">
+                    Your key goes from this page straight to api.anthropic.com (or the proxy you
+                    give), billed to your account; there is no gravis server. One scene is a few
+                    model calls plus up to four previews. Get a key at
+                    <a href="https://console.anthropic.com/" target="_blank" rel="noopener">console.anthropic.com</a>.
+                </p>
+            </div>
+        </details>
+
+        <div id="log" aria-live="polite"></div>
+
+        <details id="spec-box" hidden>
+            <summary>Scenario spec (JSON)</summary>
+            <div class="body">
+                <pre id="spec-json"></pre>
+                <div class="row">
+                    <button id="copy-spec">Copy</button>
+                    <span class="note">Run it in Claude Code, natively, or in the
+                        <a href="spec-playground.html">spec playground</a>.</span>
+                </div>
+            </div>
+        </details>
+
+        <details>
+            <summary>View</summary>
+            <div class="body">
+                <div class="row">
+                    <label>N <input type="range" id="particle-count" min="1000" max="50000" step="1000" value="1000"></label>
+                    <label>speed <input type="range" id="speed" min="1" max="20" value="4"></label>
+                    <button id="pause-btn">Pause</button>
+                    <button id="replay">Replay</button>
+                </div>
+                <label class="note"><input type="checkbox" id="show-dm"> Show dark matter</label>
+                <p class="note">Drag to orbit, scroll to zoom. Gravity only: no gas, star formation,
+                    or relativity. <a href="../ch09_specs.html">How specs work</a>.</p>
+            </div>
+        </details>
+    </div>
+
+    <div class="overlay">
+        t = <span id="stat-time">—</span> ·
+        <span id="stat-fps">—</span> fps ·
+        <span id="stat-particles">—</span> particles
+    </div>
+
+    <!-- Hidden controls read by the WASM app at startup -->
+    <select id="scenario" style="display:none"><option value="two-body" selected></option></select>
+    <select id="algorithm" style="display:none"><option value="barnes-hut" selected></option></select>
+    <span id="stat-energy" style="display:none"></span>
+    <span id="stat-virial" style="display:none"></span>
+
+    <script type="importmap">
+        { "imports": { "standardwebhooks": "./vendor/anthropic-sdk/_stubs/standardwebhooks.mjs" } }
+    </script>
+    <script>
+        if (!navigator.gpu) {
+            document.getElementById('no-webgpu').style.display = 'block';
+            document.getElementById('simulation').style.display = 'none';
+        }
+    </script>
+    <script type="module">
+        import init, { load_spec } from './pkg/web_app.js';
+        import { runAgent, PREVIEW_PARTICLES, PREVIEW_MAX_STEPS } from './universe-agent.js';
+
+        // A deployment that holds its own key behind a proxy sets this (or
+        // passes ?proxy=URL); see ADR 014.
+        const DEFAULT_PROXY = '';
+        // Pinned and vendored at build time (scripts/vendor_anthropic_sdk.sh)
+        const SDK_URL = './vendor/anthropic-sdk/index.mjs';
+
+        // Scenes from the repo's specs/ (copied next to this page at build
+        // time), with a description each would have come from.
+        const GALLERY = [
+            ['Dwarf plunge', 'A dwarf galaxy plunges through a Milky Way disk', 'dwarf-plunge'],
+            ['Tilted flyby', 'Two spiral galaxies swing past each other, one disk tilted 60 degrees', 'tilted-flyby'],
+            ['Minor merger', 'A Milky Way-like galaxy swallows a small satellite galaxy', 'minor-merger'],
+            ['Cluster + black hole', 'A star cluster on an eccentric orbit is torn into streams by a black hole', 'cluster-and-black-hole'],
+        ];
+
+        const $ = (id) => document.getElementById(id);
+        const prompt = $('prompt'), log = $('log'), status = $('status');
+        const store = {
+            get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+            set: (k, v) => { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* private mode */ } },
+        };
+
+        // ------------------------------------------------------------------
+        // Settings
+        // ------------------------------------------------------------------
+        const params = new URLSearchParams(location.search);
+        $('api-key').value = store.get('gravis.apiKey') ?? '';
+        $('remember').checked = !!store.get('gravis.apiKey');
+        $('model').value = store.get('gravis.model') ?? 'claude-opus-5-5';
+        $('proxy').value = params.get('proxy') ?? store.get('gravis.proxy') ?? DEFAULT_PROXY;
+        if (params.get('q')) prompt.value = params.get('q');
+        const saveSettings = () => {
+            store.set('gravis.apiKey', $('remember').checked && $('api-key').value ? $('api-key').value : null);
+            store.set('gravis.model', $('model').value);
+            store.set('gravis.proxy', $('proxy').value || null);
+        };
+        ['api-key', 'remember', 'model', 'proxy'].forEach((id) => $(id).addEventListener('change', saveSettings));
+
+        // ------------------------------------------------------------------
+        // Live view
+        // ------------------------------------------------------------------
+        let shownSpec = null;
+        function show(spec) {
+            shownSpec = spec;
+            try {
+                const info = JSON.parse(load_spec(JSON.stringify(spec)));
+                $('particle-count').value = info.particles;
+            } catch (e) {
+                entry('err', `Couldn't start the live view: ${e.message ?? e}`);
+                return;
+            }
+            $('spec-json').textContent = JSON.stringify(spec, null, 2);
+            $('spec-box').hidden = false;
+        }
+        $('replay').addEventListener('click', () => shownSpec && show(shownSpec));
+        $('copy-spec').addEventListener('click', () =>
+            navigator.clipboard?.writeText($('spec-json').textContent));
+        $('collapse').addEventListener('click', (ev) => {
+            $('panel').classList.toggle('collapsed');
+            ev.target.textContent = $('panel').classList.contains('collapsed') ? '▸' : '▾';
+        });
+
+        // ------------------------------------------------------------------
+        // Log
+        // ------------------------------------------------------------------
+        function entry(cls, text) {
+            const el = document.createElement('div');
+            el.className = `entry ${cls}`;
+            if (text) el.textContent = text;
+            log.appendChild(el);
+            el.scrollIntoView({ block: 'nearest' });
+            return el;
+        }
+        const clearLog = () => log.replaceChildren();
+
+        // ------------------------------------------------------------------
+        // Gallery
+        // ------------------------------------------------------------------
+        for (const [label, description, file] of GALLERY) {
+            const b = document.createElement('button');
+            b.className = 'chip';
+            b.textContent = label;
+            b.title = description;
+            b.addEventListener('click', async () => {
+                if (running) return;
+                prompt.value = description;
+                clearLog();
+                try {
+                    const spec = await (await fetch(`specs/${file}.json`)).json();
+                    show(spec);
+                    entry('answer', spec.description ?? description);
+                } catch (e) {
+                    entry('err', `Couldn't load the example: ${e.message}`);
+                }
+            });
+            $('gallery').appendChild(b);
+        }
+
+        // ------------------------------------------------------------------
+        // Previews (universe-worker.js)
+        // ------------------------------------------------------------------
+        const worker = new Worker(new URL('./universe-worker.js', import.meta.url), { type: 'module' });
+        const runs = new Map(); // id -> {resolve, reject, frames, onProgress}
+        let nextRun = 1;
+        worker.onmessage = async ({ data }) => {
+            const run = runs.get(data.id);
+            if (!run) return;
+            if (data.type === 'progress') run.onProgress(data.progress, data.time);
+            else if (data.type === 'frame') run.frames.push({ time: data.time, blob: data.blob });
+            else if (data.type === 'error') { runs.delete(data.id); run.reject(new Error(data.message)); }
+            else if (data.type === 'done') { runs.delete(data.id); run.resolve(data.report); }
+        };
+        worker.onerror = (e) => {
+            for (const run of runs.values()) run.reject(new Error(`preview worker failed: ${e.message}`));
+            runs.clear();
+        };
+
+        const toBase64 = (blob) => new Promise((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve(r.result.split(',')[1]);
+            r.onerror = () => reject(r.error);
+            r.readAsDataURL(blob);
+        });
+
+        function preview(input, onProgress, signal) {
+            const id = nextRun++;
+            const frames = [];
+            const done = new Promise((resolve, reject) => {
+                runs.set(id, { resolve, reject, frames, onProgress });
+                signal?.addEventListener('abort', () => {
+                    worker.postMessage({ type: 'cancel', id });
+                    runs.delete(id);
+                    reject(new DOMException('stopped', 'AbortError'));
+                });
+            });
+            worker.postMessage({
+                type: 'run', id, spec: JSON.stringify(input.spec), particles: PREVIEW_PARTICLES,
+                until: input.until, maxSteps: PREVIEW_MAX_STEPS, frameTimes: input.frame_times,
+            });
+            return done.then(async (report) => ({
+                report,
+                frames: await Promise.all(frames.map(async (f) => ({ ...f, base64: await toBase64(f.blob) }))),
+            }));
+        }
+
+        // ------------------------------------------------------------------
+        // Build
+        // ------------------------------------------------------------------
+        let running = false, controller = null, Anthropic = null;
+        $('stop').addEventListener('click', () => controller?.abort());
+        $('build').addEventListener('click', build);
+        prompt.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) build();
+        });
+
+        async function build() {
+            const description = prompt.value.trim();
+            if (running || !description) return;
+            const apiKey = $('api-key').value.trim();
+            const proxy = $('proxy').value.trim();
+            if (!apiKey && !proxy) {
+                $('settings').open = true;
+                $('api-key').focus();
+                status.textContent = 'Add a Claude API key first (or try an example).';
+                return;
+            }
+            saveSettings();
+            running = true;
+            controller = new AbortController();
+            $('build').disabled = true;
+            $('stop').hidden = false;
+            clearLog();
+            let progressBar = null;
+            try {
+                Anthropic ??= (await import(SDK_URL)).default;
+                const client = new Anthropic({
+                    apiKey: apiKey || 'via-proxy',
+                    baseURL: proxy || undefined,
+                    dangerouslyAllowBrowser: true,
+                    maxRetries: 2,
+                });
+                const result = await runAgent({
+                    client,
+                    model: $('model').value,
+                    description,
+                    signal: controller.signal,
+                    preview: (input) => preview(input, (p, t) => {
+                        if (progressBar) progressBar.value = p;
+                        status.textContent = `Previewing… t = ${t.toFixed(1)} of ${input.until}`;
+                    }, controller.signal),
+                    emit: (ev) => {
+                        switch (ev.kind) {
+                            case 'thinking':
+                                status.textContent = 'Claude is working…';
+                                break;
+                            case 'text':
+                                entry('claude', ev.text);
+                                break;
+                            case 'design': {
+                                const o = ev.result.orbit;
+                                entry('claude', `Designed an orbit: pericenter ${o.pericenter}, ` +
+                                    `eccentricity ${o.eccentricity} (${o.eccentricity < 0.999 ? 'bound' : o.eccentricity > 1.001 ? 'unbound' : 'parabolic'}), ` +
+                                    `closest approach at t ≈ ${o.time_to_pericenter} (Kepler).`);
+                                break;
+                            }
+                            case 'preview-start': {
+                                const el = entry('preview', `Draft ${ev.n}: ${ev.input.spec.name ?? 'spec'} ` +
+                                    `(${ev.input.spec.components?.length ?? 0} components), test run to t = ${ev.input.until}`);
+                                progressBar = document.createElement('progress');
+                                progressBar.max = 1;
+                                progressBar.value = 0;
+                                el.appendChild(progressBar);
+                                break;
+                            }
+                            case 'preview-error':
+                                progressBar?.remove();
+                                entry('err', `Draft ${ev.n} rejected: ${ev.message}`);
+                                break;
+                            case 'preview': {
+                                progressBar?.remove();
+                                const el = log.lastElementChild;
+                                for (const [level, msg] of ev.check.verdicts) {
+                                    const v = document.createElement('div');
+                                    v.className = `verdict ${level}`;
+                                    v.textContent = `${level} ${msg}`;
+                                    el.appendChild(v);
+                                }
+                                for (const f of ev.frames) {
+                                    const img = document.createElement('img');
+                                    img.src = URL.createObjectURL(f.blob);
+                                    img.alt = `preview frame at t = ${f.time.toFixed(1)}: face-on and edge-on views`;
+                                    el.appendChild(img);
+                                }
+                                show(ev.input.spec);
+                                break;
+                            }
+                            case 'done':
+                                entry('answer', ev.text || 'Done.');
+                                break;
+                        }
+                    },
+                });
+                if (!result.spec) entry('note', 'No scene was built.');
+                status.textContent = '';
+            } catch (e) {
+                progressBar?.remove();
+                if (e.name === 'AbortError' || controller.signal.aborted) {
+                    status.textContent = 'Stopped.';
+                } else {
+                    entry('err', describeError(e));
+                    status.textContent = '';
+                }
+            } finally {
+                running = false;
+                $('build').disabled = false;
+                $('stop').hidden = true;
+            }
+        }
+
+        function describeError(e) {
+            const s = e.status;
+            if (s === 401) return 'The API key was rejected (401). Check it under "Claude API key and model".';
+            if (s === 429) return 'Rate limited (429). Wait a moment and try again.';
+            if (s === 529 || s >= 500) return `The API is busy or failing (${s}). Try again shortly.`;
+            if (s) return `API error ${s}: ${e.message}`;
+            return e.message ?? String(e);
+        }
+
+        // ------------------------------------------------------------------
+        // Start
+        // ------------------------------------------------------------------
+        await init();
+        if (navigator.gpu) {
+            // The WASM entry point finishes setting up asynchronously (GPU
+            // adapter, device); retry until load_spec stops saying so.
+            const first = async () => {
+                try {
+                    const spec = await (await fetch('specs/dwarf-plunge.json')).json();
+                    const info = JSON.parse(load_spec(JSON.stringify(spec)));
+                    $('particle-count').value = info.particles;
+                    shownSpec = spec;
+                } catch (e) {
+                    if (String(e.message ?? e).includes('still starting')) setTimeout(first, 100);
+                }
+            };
+            first();
+        }
+    </script>
+</body>
+</html>

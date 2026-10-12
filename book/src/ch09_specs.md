@@ -360,4 +360,6 @@ Some things to try:
 
 ## What's Next
 
-A spec is easy for a person to write, but the point of the format is that it's also easy for a program to write, check, and revise. The next step is a Claude Code skill that takes a plain-English description ("a dwarf galaxy plunges through a Milky Way disk"), writes a spec, runs it headless, reads the energy drift and rendered frames, and revises until both the physics and the picture hold up.
+A spec is easy for a person to write, but the point of the format is that it's also easy for a program to write, check, and revise. The `/universe` Claude Code skill ([ADR 013](https://github.com/jcorbettfrank/gravis/blob/main/docs/adr/013-universe-skill.md)) does exactly that: it takes a plain-English description ("a dwarf galaxy plunges through a Milky Way disk"), writes a spec, runs it headless, reads the energy drift and rendered frames, and revises until both the physics and the picture hold up.
+
+The **[Text to Universe page](demos/universe.html)** runs the same loop in your browser. Type a description and Claude designs the orbit, test-runs each draft here (energy conservation, whether the encounter happens, a look at the frames), revises, and then the scene plays live. It needs your own Claude API key, which goes straight from the page to Anthropic; the pre-built examples work without one ([ADR 014](https://github.com/jcorbettfrank/gravis/blob/main/docs/adr/014-public-universe-page.md)).
