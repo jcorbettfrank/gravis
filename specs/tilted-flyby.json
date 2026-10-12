@@ -1,6 +1,6 @@
 {
   "name": "Tilted Flyby",
-  "description": "Two Milky Way-like disks on a prograde encounter; the second disk is tilted 60 degrees out of the orbital plane, so only the first throws out long tidal tails (Toomre & Toomre 1972).",
+  "description": "Two Milky Way-like disks, one tilted 60 degrees, fall almost head-on into each other on a bound, nearly radial orbit. They pass through each other near t = 13, fall back and merge by t = 25-30, and both disks fling out a similar 5-10% of their stars: a near-radial plunge has no orbital sweep for either disk's spin to resonate with, so there are no Toomre-style prograde tails.",
   "components": [
     {
       "type": "disk_galaxy",

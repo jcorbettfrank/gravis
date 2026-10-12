@@ -134,7 +134,7 @@ velocities, and checks the orbits in any spec.
 
 | Spec | What it shows |
 |---|---|
-| [`tilted-flyby.json`](tilted-flyby.json) | Prograde encounter; one disk tilted 60° |
+| [`tilted-flyby.json`](tilted-flyby.json) | Near head-on plunge and merger of two disks; one tilted 60° |
 | [`minor-merger.json`](minor-merger.json) | A dwarf galaxy shredded by a Milky Way–like disk |
 | [`cluster-and-black-hole.json`](cluster-and-black-hole.json) | A star cluster stripped into streams by a black hole |
 | [`dwarf-plunge.json`](dwarf-plunge.json) | A dwarf galaxy crossing a disk face-on; written with the `/universe` skill |
