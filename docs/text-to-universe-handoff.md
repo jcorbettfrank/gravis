@@ -73,8 +73,15 @@ same row share files; run those in sequence.
 Workstream E landed as `.claude/skills/universe/` ([ADR 013](adr/013-universe-skill.md)); its
 worked example is the place to start for step 3.
 
-Later: step 3 (the public page) once E works, and the sim-time-dependent view
-radius (the camera follows the expanding debris).
+Step 3, the public page, landed as `crates/web-app/static/demos/universe.html`
+([ADR 014](adr/014-public-universe-page.md)): the visitor's own API key, the
+skill's method as two in-browser tools (`design_orbit`, `run_preview`), and
+`sim_core::preview` running drafts in a Web Worker.
+
+Later: a sim-time-dependent view radius (the camera follows the expanding
+debris); timing the page's previews on real hardware and tuning their size; a
+rate-limited proxy if the project ever wants to pay for visitors' calls (the
+page already takes a proxy URL).
 
 ## Environment notes
 
