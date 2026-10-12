@@ -192,3 +192,28 @@ fn virial_equilibrium_plummer_bh() {
         "Energy drift {de_rel:.6e} exceeds 1% for Plummer with Barnes-Hut"
     );
 }
+
+/// Tree potential energy at theta=0 opens every node, so it is the exact pair sum.
+#[test]
+fn tree_potential_theta_zero_matches_exact() {
+    let particles = PlummerSphere { n: 500, seed: 7, ..Default::default() }.generate();
+    let exact = diagnostics::compute(&particles, 0.01, 0.0, 0).potential_energy;
+    let tree = BarnesHut::new(0.01, 0.0).potential_energy(&particles);
+    let rel = ((tree - exact) / exact).abs();
+    assert!(rel < 1e-12, "theta=0 tree U {tree} vs exact {exact} (rel {rel:.2e})");
+}
+
+/// At the theta the native HUD uses (0.3), the tree potential is within
+/// 1e-4 of exact, below the energy drift a run should flag.
+#[test]
+fn tree_potential_close_to_exact() {
+    let particles = PlummerSphere { n: 5000, seed: 42, ..Default::default() }.generate();
+    let exact = diagnostics::compute(&particles, 0.01, 0.0, 0);
+    let tree = diagnostics::compute_tree(&particles, 0.01, 0.3, 0.0, 0);
+    let rel_u = ((tree.potential_energy - exact.potential_energy) / exact.potential_energy).abs();
+    let rel_e = ((tree.total_energy - exact.total_energy) / exact.total_energy).abs();
+    eprintln!("theta=0.3: |dU/U| = {rel_u:.2e}, |dE/E| = {rel_e:.2e}");
+    assert!(rel_u < 1e-4, "tree U off by {rel_u:.2e}");
+    assert!(rel_e < 1e-4, "tree E off by {rel_e:.2e}");
+    assert_eq!(tree.kinetic_energy, exact.kinetic_energy);
+}
